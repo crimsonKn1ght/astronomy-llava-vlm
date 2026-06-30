@@ -26,6 +26,7 @@ Use ``--max-samples 50`` first for a quick smoke test, then re-run with ``--over
 """
 
 import argparse
+import io
 import itertools
 import json
 import os
@@ -33,8 +34,13 @@ import random
 import sys
 from pathlib import Path
 
-from datasets import load_dataset
+from datasets import Image as HFImage, load_dataset
+from PIL import Image as PILImage
 from tqdm import tqdm
+
+# Hubble/ESO frames can be hundreds of megapixels. This is a trusted, curated dataset, so
+# disable PIL's decompression-bomb guard (which otherwise hard-errors mid-stream on big images).
+PILImage.MAX_IMAGE_PIXELS = None
 
 IMAGE_TOKEN = "<image>"
 
@@ -68,6 +74,18 @@ def normalize_turns(conversation) -> list:
 
 def clean_question(text: str) -> str:
     return text.replace(IMAGE_TOKEN, "").strip()
+
+
+def decode_image(value):
+    """Turn a datasets Image(decode=False) value (or a PIL image) into a PIL image."""
+    if hasattr(value, "convert"):  # already a decoded PIL image
+        return value
+    if isinstance(value, dict):
+        if value.get("bytes") is not None:
+            return PILImage.open(io.BytesIO(value["bytes"]))
+        if value.get("path"):
+            return PILImage.open(value["path"])
+    raise ValueError("Unsupported image value from dataset row")
 
 
 def qa_records_from_conversation(conversation, pair_id: str, image_name: str) -> list:
@@ -148,6 +166,9 @@ def main() -> None:
 
     print(f"Streaming {args.hf_id} split={args.split} (cap={args.max_samples})")
     ds = load_dataset(args.hf_id, split=args.split, streaming=not args.no_streaming)
+    # Decode images ourselves (decode=False) so a corrupt/oversized image is caught by the
+    # per-row try/except below instead of crashing the whole dataset iterator mid-stream.
+    ds = ds.cast_column("image", HFImage(decode=False))
     rows = iter(ds)
     if args.max_samples is not None:
         rows = itertools.islice(rows, args.max_samples)
@@ -162,7 +183,7 @@ def main() -> None:
             image_name = f"{pair_id}.jpg"
             image_path = image_dir / image_name
             if not image_path.exists():
-                img = row["image"].convert("RGB")
+                img = decode_image(row["image"]).convert("RGB")
                 if args.max_image_size:
                     img.thumbnail((args.max_image_size, args.max_image_size))
                 img.save(image_path, format="JPEG", quality=90)
