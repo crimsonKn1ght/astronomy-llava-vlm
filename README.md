@@ -20,6 +20,8 @@ This implementation bridges a frozen CLIP vision encoder (`openai/clip-vit-large
 
 ## Architecture
 
+![AstroLLaVA Stage-2 architecture](docs/diagrams/model_architecture.svg)
+
 ```
 Image (3, 224, 224)
     ↓
@@ -368,6 +370,8 @@ python inference.py \
 flattening by the end of the single epoch.*
 
 ### Train
+
+![AstroLLaVA Stage-2 training flow](docs/diagrams/training_flow.svg)
 
 Reuse the **same** `train.json` / `images/` from the Stage-1 build (caption + QA, with the held-out
 `test.json`). Point `stage1_checkpoint` at a trained Stage-1 connector (your own
