@@ -30,6 +30,7 @@ class VLMForCausalLM(nn.Module):
         self.language_model = LanguageModel(
             model_name=lm_cfg.get("model_name", "Qwen/Qwen2.5-1.5B-Instruct"),
             torch_dtype=torch_dtype,
+            lora=lm_cfg.get("lora"),
         )
 
         self.connector = VisionLanguageConnector(
@@ -43,6 +44,22 @@ class VLMForCausalLM(nn.Module):
 
         self.image_token_id = self.language_model.image_token_id
         self.num_patches = self.vision_encoder.num_patches
+
+    def enable_gradient_checkpointing(self) -> None:
+        """Trade compute for memory on the LLM backward pass (Stage-2 needs this to fit ~48 GB).
+
+        The connector output requires grad, so the concatenated ``inputs_embeds`` requires grad and
+        checkpointing works without ``enable_input_require_grads``. ``use_cache`` must be off because
+        gradient checkpointing and the KV cache are mutually exclusive.
+        """
+        llm = self.language_model.model
+        llm.gradient_checkpointing_enable()
+        # For a PeftModel, ``.config`` proxies the base model's config; fall back to the wrapped base.
+        base_config = getattr(llm, "config", None)
+        if base_config is None and hasattr(llm, "get_base_model"):
+            base_config = llm.get_base_model().config
+        if base_config is not None:
+            base_config.use_cache = False
 
     @property
     def tokenizer(self):

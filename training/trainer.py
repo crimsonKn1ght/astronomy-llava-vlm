@@ -42,6 +42,10 @@ class VLMTrainer:
         self.save_steps = train_cfg.get("save_steps", 500)
         self.dataloader_num_workers = train_cfg.get("dataloader_num_workers", 4)
         self.seed = train_cfg.get("seed", 42)
+        # Stage 1 = connector-only (default). Stage 2 = connector + LoRA on the LLM.
+        self.stage = train_cfg.get("stage", 1)
+        # Optional separate LR for the (pretrained) connector vs the fresh LoRA adapters.
+        self.connector_lr = train_cfg.get("connector_lr", None)
 
     def train(self):
         trainable = count_trainable_parameters(self.model)
@@ -50,17 +54,30 @@ class VLMTrainer:
         logger.info(f"Total parameters: {total:,}")
         logger.info(f"Trainable ratio: {trainable / total:.6%}")
 
+        # The connector is trainable in both stages; Stage 2 additionally trains the LoRA adapters.
         connector_params = list(self.model.connector.parameters())
         assert all(
             p.requires_grad for p in connector_params
         ), "Connector parameters must be trainable"
 
-        optimizer = torch.optim.AdamW(
-            connector_params,
-            lr=self.learning_rate,
-            weight_decay=self.weight_decay,
-            betas=(0.9, 0.999),
-        )
+        all_trainable = [p for p in self.model.parameters() if p.requires_grad]
+        connector_ids = {id(p) for p in connector_params}
+        other_trainable = [p for p in all_trainable if id(p) not in connector_ids]
+
+        adamw_kwargs = dict(weight_decay=self.weight_decay, betas=(0.9, 0.999))
+        if self.connector_lr is not None and other_trainable:
+            # Give the pretrained connector its own (typically lower) LR than the fresh LoRA.
+            optimizer = torch.optim.AdamW(
+                [
+                    {"params": connector_params, "lr": float(self.connector_lr)},
+                    {"params": other_trainable, "lr": self.learning_rate},
+                ],
+                **adamw_kwargs,
+            )
+        else:
+            optimizer = torch.optim.AdamW(
+                all_trainable, lr=self.learning_rate, **adamw_kwargs
+            )
 
         collator = VLMDataCollator(
             tokenizer=self.model.tokenizer,
@@ -103,10 +120,17 @@ class VLMTrainer:
         grad_checked = False
 
         self.model.train()
-        # Re-freeze vision encoder and LLM (accelerator.prepare may reset eval mode)
+        # The vision encoder is always frozen → keep it in eval. The LLM is frozen in Stage 1 (keep
+        # eval), but in Stage 2 it carries trainable LoRA, so leave it in train() for LoRA dropout.
         unwrapped = self.accelerator.unwrap_model(self.model)
         unwrapped.vision_encoder.model.eval()
-        unwrapped.language_model.model.eval()
+        if self.stage < 2:
+            unwrapped.language_model.model.eval()
+
+        is_lora = getattr(unwrapped.language_model, "is_lora", False)
+        trainable_for_step = [p for p in unwrapped.parameters() if p.requires_grad]
+        # Stage-2 also checkpoints the LoRA adapter; Stage-1 passes None (connector only).
+        peft_model = unwrapped.language_model.model if is_lora else None
 
         for epoch in range(self.num_epochs):
             logger.info(f"Starting epoch {epoch + 1}/{self.num_epochs}")
@@ -135,9 +159,17 @@ class VLMTrainer:
                                 "Connector received no gradient before the optimizer step — "
                                 "the image-embedding merge path is detached from the loss."
                             )
+                            if is_lora:
+                                assert any(
+                                    p.grad is not None for p in trainable_for_step
+                                    if id(p) not in {id(c) for c in unwrapped.connector.parameters()}
+                                ), (
+                                    "No LoRA parameter received gradient — the LLM adapters are "
+                                    "detached from the loss."
+                                )
                             grad_checked = True
                         self.accelerator.clip_grad_norm_(
-                            unwrapped.connector.parameters(),
+                            trainable_for_step,
                             self.max_grad_norm,
                         )
 
@@ -182,6 +214,7 @@ class VLMTrainer:
                             step=global_step,
                             loss=loss.item(),
                             output_dir=self.output_dir,
+                            peft_model=peft_model,
                         )
                         logger.info(f"Saved checkpoint at step {global_step}")
 
@@ -193,5 +226,6 @@ class VLMTrainer:
                 step=global_step,
                 loss=loss.item(),
                 output_dir=self.output_dir,
+                peft_model=peft_model,
             )
             logger.info(f"Training complete. Final checkpoint saved at step {global_step}")

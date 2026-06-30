@@ -7,6 +7,12 @@ from transformers.modeling_outputs import CausalLMOutputWithPast
 
 from .utils import freeze_module, IMAGE_TOKEN
 
+# Qwen2.5 attention + MLP projections — the standard LoRA target set for Stage-2 instruction tuning.
+DEFAULT_LORA_TARGET_MODULES = [
+    "q_proj", "k_proj", "v_proj", "o_proj",
+    "gate_proj", "up_proj", "down_proj",
+]
+
 
 class LanguageModel(nn.Module):
 
@@ -14,6 +20,7 @@ class LanguageModel(nn.Module):
         self,
         model_name: str = "Qwen/Qwen2.5-1.5B-Instruct",
         torch_dtype: torch.dtype = torch.bfloat16,
+        lora: Optional[dict] = None,
     ):
         super().__init__()
         self.model = AutoModelForCausalLM.from_pretrained(
@@ -34,7 +41,30 @@ class LanguageModel(nn.Module):
         if self.tokenizer.pad_token is None:
             self.tokenizer.pad_token = self.tokenizer.eos_token
 
+        # Always start from a fully frozen base. Stage-1 leaves it frozen; Stage-2 then re-opens a
+        # small set of low-rank adapters (LoRA) while the original weights stay frozen.
         freeze_module(self.model)
+
+        self.is_lora = lora is not None
+        if self.is_lora:
+            self._apply_lora(lora)
+
+    def _apply_lora(self, lora: dict) -> None:
+        # Imported lazily so Stage-1 (no LoRA) does not require `peft` to be installed.
+        from peft import LoraConfig, get_peft_model
+
+        lora_config = LoraConfig(
+            task_type="CAUSAL_LM",
+            r=int(lora.get("r", 16)),
+            lora_alpha=int(lora.get("lora_alpha", 32)),
+            lora_dropout=float(lora.get("lora_dropout", 0.05)),
+            target_modules=list(lora.get("target_modules", DEFAULT_LORA_TARGET_MODULES)),
+            bias="none",
+        )
+        # get_peft_model freezes the base and marks only the adapter weights trainable. The resized
+        # embedding table (for <image>) is not a LoRA target, so it stays frozen — correct, since
+        # <image> positions are swapped for visual embeds and never embedded.
+        self.model = get_peft_model(self.model, lora_config)
 
     @property
     def hidden_size(self) -> int:

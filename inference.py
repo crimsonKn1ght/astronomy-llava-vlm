@@ -7,7 +7,7 @@ import torch
 from vlm_model.vlm import VLMForCausalLM
 from vlm_model.utils import IMAGE_TOKEN
 from data.image_processing import load_and_process_image
-from training.checkpoint import load_connector_checkpoint
+from training.checkpoint import load_connector_checkpoint, load_lora_adapter
 
 logging.basicConfig(
     level=logging.INFO,
@@ -22,6 +22,19 @@ def load_vlm(config_path: str, connector_checkpoint: str, device: str = "cuda") 
 
     model = VLMForCausalLM(config)
     load_connector_checkpoint(model.connector, connector_checkpoint)
+
+    # Stage-2 checkpoints also carry a LoRA adapter (lora/ subdir). The config's `lora` block already
+    # built the adapter structure on the LLM; here we load the trained weights into it. Stage-1
+    # checkpoints have no lora/ subdir, so this is a no-op for them.
+    if getattr(model.language_model, "is_lora", False):
+        if load_lora_adapter(model.language_model.model, connector_checkpoint):
+            logger.info(f"Loaded LoRA adapter from {connector_checkpoint}/lora")
+        else:
+            logger.warning(
+                f"Config has a `lora` block but no lora/ adapter found in {connector_checkpoint}; "
+                "running with randomly-initialized adapters."
+            )
+
     model = model.to(device)
     model.eval()
 

@@ -300,6 +300,81 @@ command (with `--test-fraction 0.02 --seed 42`), the training command, and packa
 (`torch 2.8.0+cu128`, `transformers 5.12.1`). The split is seeded, so the same build reproduces the
 exact train/test partition.
 
+## Stage 2: Visual Instruction Tuning (LoRA)
+
+Stage 1 trains only the connector, so it grounds *coarse* visual structure but **hallucinates fine
+specifics** (catalog numbers, instruments, dates, distances) — the frozen LLM fills those from its
+prior. **Stage 2** addresses that ceiling: it warm-starts the Stage-1 connector and keeps training
+it **while fine-tuning the Qwen LLM with LoRA adapters** on the same caption + QA data. The vision
+encoder stays frozen.
+
+```
+image ─► CLIP ViT-L/14 (FROZEN) ─► MLP connector (TRAINED, init from Stage-1) ─► Qwen2.5-1.5B + LoRA (base FROZEN, LoRA TRAINED) ─► text
+```
+
+LoRA needs one extra dependency (already in `requirements.txt`):
+
+```bash
+pip install peft
+```
+
+### Train
+
+Reuse the **same** `train.json` / `images/` from the Stage-1 build (caption + QA, with the held-out
+`test.json`). Point `stage1_checkpoint` at a trained Stage-1 connector (your own
+`checkpoints/astrollava-stage1/checkpoint-3789`, or the released `grKnight/astrollava-stage1`
+bundle), then:
+
+```bash
+python train.py --config configs/finetune_astrollava_stage2.yaml
+```
+
+| Setting | Value | Rationale |
+|---------|-------|-----------|
+| Trainable | connector (~3.9M) + LoRA adapters | base LLM + vision stay frozen |
+| LoRA | `r=16`, `alpha=32`, `dropout=0.05`, targets `q/k/v/o/gate/up/down_proj` | standard Qwen2.5 LoRA set |
+| Stage | `stage: 2` | switches the trainer to connector+LoRA and keeps the LLM in `train()` |
+| Epochs | 1 | instruction-tuning convention |
+| Effective batch | 64 (per-device 4 × grad-accum 16) | |
+| Gradient checkpointing | `true` | **required** to fit the LLM backward pass in ~48 GB |
+| Learning rate | 2e-4, cosine, 3% warmup | LoRA + connector (optional `connector_lr` for a split LR) |
+| Precision | bf16 | |
+
+**Memory:** Stage 1 was ~38 GB at batch 8 with *no* LLM gradients. Stage 2 adds the full-LLM
+backward pass, so it uses `per_device_batch_size: 4` + gradient checkpointing. If it still OOMs on
+48 GB, drop the batch to 2 and raise `gradient_accumulation_steps` to 32 (effective batch
+unchanged).
+
+Each Stage-2 checkpoint dir holds the continued-trained `connector.safetensors` **and** a
+`lora/adapter_model.safetensors` (+ `adapter_config.json`). Stage-1 checkpoint dirs are unchanged
+(no `lora/`), so they still load as before.
+
+### Inference / held-out eval
+
+Pass the Stage-2 **config** (so the LoRA modules are built) and a Stage-2 checkpoint; the loader
+restores both the connector and the LoRA adapter automatically:
+
+```bash
+python inference.py \
+  --config configs/finetune_astrollava_stage2.yaml \
+  --checkpoint checkpoints/astrollava-stage2/checkpoint-XXXX \
+  --image your_astro_image.jpg \
+  --prompt "What type of object is this and what is notable about it?" \
+  --temperature 0
+
+# Held-out comparison vs Stage-1 on the SAME unseen images:
+python scripts/batch_inference.py \
+  --config configs/finetune_astrollava_stage2.yaml \
+  --checkpoint checkpoints/astrollava-stage2/checkpoint-XXXX \
+  --image-dir datasets/astrollava_llava/images \
+  --records-json datasets/astrollava_llava/test.json \
+  --num-samples 0 --temperature 0 --output predictions_test_stage2.jsonl
+```
+
+Diff `predictions_test_stage2.jsonl` against the published Stage-1 `predictions_test_ep3.jsonl`: the
+Stage-2 hypothesis is fewer hallucinated specifics on the QA prompts, since the LLM (not just the
+connector) now learns from the images.
+
 ## Medical RAG Layer (Retrieval-Augmented Grounding)
 
 On top of the frozen VLM, this repo includes an **inference-time retrieval-augmented
@@ -430,9 +505,11 @@ prototype.
 
 ## Next Steps
 
-This implementation covers **Stage 1: Feature Alignment**. Future extensions might include:
+This implementation covers **Stage 1: Feature Alignment** and **Stage 2: Visual Instruction Tuning
+(LoRA)** (see [Stage 2: Visual Instruction Tuning (LoRA)](#stage-2-visual-instruction-tuning-lora)).
+Further extensions might include:
 
-1. **Stage 2: Full Model Tuning** — Unfreeze LLM layers and fine-tune on instruction-following data
+1. **Full Model Tuning** — Unfreeze all LLM layers (instead of LoRA) for more capacity at higher VRAM cost
 2. **Cross-Attention Connector** — Replace MLP with a learned cross-attention mechanism for better spatial reasoning
 3. **Higher-Resolution Images** — Support variable image resolutions and dynamic patching
 4. **Multi-Image Support** — Handle multiple images per prompt

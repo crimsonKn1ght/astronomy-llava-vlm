@@ -10,6 +10,7 @@ from vlm_model.vlm import VLMForCausalLM
 from vlm_model.utils import count_trainable_parameters, count_total_parameters
 from data.dataset import LLaVAPretrainDataset
 from training.trainer import VLMTrainer
+from training.checkpoint import load_connector_checkpoint
 
 logging.basicConfig(
     level=logging.INFO,
@@ -44,6 +45,18 @@ def main():
 
     logger.info("Building model...")
     model = VLMForCausalLM(config)
+
+    # Stage 2: warm-start the connector from a Stage-1 checkpoint, then continue training it
+    # alongside the LLM's LoRA adapters.
+    stage1_checkpoint = config.get("stage1_checkpoint")
+    if stage1_checkpoint:
+        logger.info(f"Initializing connector from Stage-1 checkpoint: {stage1_checkpoint}")
+        load_connector_checkpoint(model.connector, stage1_checkpoint)
+
+    # Gradient checkpointing on the LLM (needed to fit the Stage-2 backward pass in ~48 GB).
+    if train_cfg.get("gradient_checkpointing", False):
+        logger.info("Enabling gradient checkpointing on the LLM")
+        model.enable_gradient_checkpointing()
 
     trainable = count_trainable_parameters(model)
     total = count_total_parameters(model)

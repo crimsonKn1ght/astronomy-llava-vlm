@@ -14,11 +14,17 @@ def save_connector_checkpoint(
     step: int,
     loss: float,
     output_dir: str,
+    peft_model: Optional[nn.Module] = None,
 ) -> str:
     checkpoint_dir = os.path.join(output_dir, f"checkpoint-{step}")
     os.makedirs(checkpoint_dir, exist_ok=True)
 
     save_file(connector.state_dict(), os.path.join(checkpoint_dir, "connector.safetensors"))
+
+    # Stage-2: also persist the LoRA adapter next to the connector. Stage-1 passes peft_model=None,
+    # so its checkpoint dirs stay byte-compatible (no lora/ subdir).
+    if peft_model is not None:
+        peft_model.save_pretrained(os.path.join(checkpoint_dir, "lora"))
 
     torch.save(
         {
@@ -33,6 +39,21 @@ def save_connector_checkpoint(
         json.dump(meta, f, indent=2)
 
     return checkpoint_dir
+
+
+def load_lora_adapter(peft_model: nn.Module, checkpoint_path: str) -> bool:
+    """Load a saved LoRA adapter into an already-LoRA-wrapped model. No-op (returns False) if the
+    checkpoint has no ``lora/`` subdir, so Stage-1 checkpoints load unchanged."""
+    lora_dir = os.path.join(checkpoint_path, "lora")
+    if not os.path.isdir(lora_dir):
+        return False
+
+    from peft import set_peft_model_state_dict
+
+    adapter_file = os.path.join(lora_dir, "adapter_model.safetensors")
+    state_dict = load_file(adapter_file)
+    set_peft_model_state_dict(peft_model, state_dict)
+    return True
 
 
 def load_connector_checkpoint(
