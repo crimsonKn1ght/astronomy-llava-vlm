@@ -4,17 +4,17 @@ Reuses inference.load_vlm / inference.run_inference, but loads the model ONCE (t
 CLI reloads ~5 GB every call). Output is one JSON object per line:
     {"image": ..., "prompt": ..., "response": ..., "reference": <optional ground-truth caption>}
 
-NOTE: every image in this dataset was used for training, so these are example predictions on
-seen data, not a held-out evaluation.
+Pass --records-json datasets/astrollava_llava/test.json to score EXACTLY the held-out test
+images (and attach their reference captions); otherwise it samples from --image-dir.
 
-Usage (from repo root):
+Usage (from repo root) — held-out test set, all unseen images:
     python scripts/batch_inference.py \
         --config configs/pretrain_astrollava.yaml \
-        --checkpoint checkpoints/astrollava-stage1/checkpoint-1300 \
+        --checkpoint checkpoints/astrollava-stage1/checkpoint-3786 \
         --image-dir datasets/astrollava_llava/images \
-        --train-json datasets/astrollava_llava/train.json \
-        --num-samples 200 --temperature 0 \
-        --output predictions.jsonl
+        --records-json datasets/astrollava_llava/test.json \
+        --num-samples 0 --temperature 0 \
+        --output predictions_test.jsonl
 """
 
 import argparse
@@ -45,6 +45,21 @@ def load_references(train_json: str) -> dict:
     return refs
 
 
+def images_from_records(records_json: str):
+    """Return (ordered unique image names, {image -> reference caption}) from a records JSON."""
+    with open(records_json, "r", encoding="utf-8") as f:
+        data = json.load(f)
+    names, seen, refs = [], set(), {}
+    for r in data:
+        img = r["image"]
+        if img not in seen:
+            seen.add(img)
+            names.append(img)
+        if "_qa" not in r["id"] and r.get("conversations"):
+            refs.setdefault(img, r["conversations"][1]["value"])
+    return names, refs
+
+
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description="Batch image captioning with a single model load.")
     p.add_argument("--config", required=True, help="Training/inference config YAML.")
@@ -63,6 +78,11 @@ def parse_args() -> argparse.Namespace:
         "--train-json", default=None,
         help="Optional train.json to attach ground-truth captions for side-by-side comparison.",
     )
+    p.add_argument(
+        "--records-json", default=None,
+        help="Score exactly the images listed in this JSON (e.g. test.json for held-out eval), "
+        "attaching their reference captions. Overrides directory sampling.",
+    )
     p.add_argument("--device", default="cuda")
     return p.parse_args()
 
@@ -71,15 +91,20 @@ def main() -> None:
     args = parse_args()
     rng = random.Random(args.seed)
 
-    image_paths = sorted(
-        p for p in Path(args.image_dir).iterdir() if p.suffix.lower() in IMAGE_EXTS
-    )
+    image_dir = Path(args.image_dir)
+    if args.records_json:
+        names, refs = images_from_records(args.records_json)
+        image_paths = [image_dir / n for n in names if (image_dir / n).exists()]
+    else:
+        image_paths = sorted(
+            p for p in image_dir.iterdir() if p.suffix.lower() in IMAGE_EXTS
+        )
+        refs = load_references(args.train_json)
+
     if not image_paths:
-        raise SystemExit(f"No images found in {args.image_dir}")
+        raise SystemExit(f"No images found ({args.records_json or args.image_dir})")
     if args.num_samples and args.num_samples < len(image_paths):
         image_paths = sorted(rng.sample(image_paths, args.num_samples))
-
-    refs = load_references(args.train_json)
     model = load_vlm(args.config, args.checkpoint, args.device)
 
     out_path = Path(args.output)

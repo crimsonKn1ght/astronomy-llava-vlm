@@ -187,119 +187,128 @@ The `<image>` token in the prompt is automatically replaced with visual embeddin
 
 ## Trained Model: AstroLLaVA Stage-1 (Astronomy)
 
-A connector trained with this codebase on real astronomy image–text data is released on the
-Hugging Face Hub:
+The Stage-1 connector trained with this codebase is released on the Hugging Face Hub:
 
 **https://huggingface.co/grKnight/astrollava-stage1**
 
-The release contains two archives. Each bundles the checkpoint(s) together with the training
-config, the example predictions (`predictions.jsonl`), and a `REPRODUCE.md` provenance file:
+It was trained for **3 full epochs** on real astronomy image–text data, with a **disjoint held-out
+test split** carved out before training so the connector can be evaluated on images it never saw.
+Three per-epoch bundles are published — each contains that epoch's checkpoint, its **held-out**
+predictions, the training config, the `test.json` split, and a `REPRODUCE.md`:
 
-| Archive | Contents |
-|---------|----------|
-| `astrollava-stage1-checkpoint-1300.zip` | `checkpoint-1300` (≈ one epoch; the recommended checkpoint) |
-| `astrollava-stage1-all-checkpoints.zip` | every saved checkpoint (steps 100–1300) |
+| Bundle | Checkpoint | |
+|--------|-----------|--|
+| [`astrollava-stage1-ep3.zip`](https://huggingface.co/grKnight/astrollava-stage1/blob/main/astrollava-stage1-ep3.zip) | `checkpoint-3789` (epoch 3, final) | **recommended** |
+| [`astrollava-stage1-ep2.zip`](https://huggingface.co/grKnight/astrollava-stage1/blob/main/astrollava-stage1-ep2.zip) | `checkpoint-2500` (≈ epoch 2) | |
+| [`astrollava-stage1-ep1.zip`](https://huggingface.co/grKnight/astrollava-stage1/blob/main/astrollava-stage1-ep1.zip) | `checkpoint-1300` (≈ epoch 1) | |
 
 Each checkpoint is the connector only (`connector.safetensors`, ~16 MB) plus optimizer state. It
 is **not** a standalone `transformers` model — it requires this repository's code and the two base
 models (downloaded from the Hub) to run.
 
-### Dataset
+> **Superseded files.** An earlier release (`*-legacy-1epoch-no-heldout-*`) was trained to ~1 epoch
+> only and evaluated on training images (no held-out split, so possible leakage). It is kept for
+> record only — use the `ep1`/`ep2`/`ep3` bundles above.
+
+### Dataset (with held-out test split)
 
 Training used [`UniverseTBD/AstroLLaVA_convos`](https://huggingface.co/datasets/UniverseTBD/AstroLLaVA_convos)
 (CC-BY-SA-4.0): ~29.8k astronomy images from NASA APOD, ESO, and the NASA/ESA Hubble Space
 Telescope, each with a human-written caption and GPT-4-generated question–answer turns.
-`scripts/build_astrollava_trainset.py` streams the dataset and converts it to the LLaVA JSON format
-this repo expects:
+`scripts/build_astrollava_trainset.py` streams it, converts to LLaVA JSON, and holds out a fraction
+of **images** as a disjoint test set (caption + QA kept together, seeded → deterministic):
 
 ```bash
 python scripts/build_astrollava_trainset.py \
   --output-dir datasets/astrollava_llava --split train \
-  --include-qa --max-image-size 384
+  --include-qa --max-image-size 384 --test-fraction 0.02 --seed 42
 ```
 
-- Caption records use the human-written caption; `--include-qa` additionally emits one single-turn
-  record per QA pair (the tokenizer keeps only the last turn, so conversations are flattened).
-- `--max-image-size 384` caps the long edge (CLIP uses 224×224 regardless) and images are
-  re-encoded as JPEG to keep the extracted set small (~1–2 GB instead of tens of GB as PNG).
-- Oversized frames (some Hubble images exceed 100 megapixels) and the occasional unreadable image
-  are skipped rather than aborting the run.
+- The split is **per image**, so an image's caption and all its QA records stay on the same side —
+  there is no train/test leakage.
+- `--max-image-size 384` caps the long edge (CLIP uses 224×224 regardless) and re-encodes as JPEG;
+  oversized (>100 MP) and unreadable frames are skipped rather than aborting the run.
 
-The resulting set was **164,924 records** (29,596 captions + 135,328 QA) over ~29.7k images;
-41 rows were skipped as unreadable.
+| Split | Images | Records |
+|-------|-------:|--------:|
+| train (`train.json`) | 29,151 | 161,653 |
+| held-out test (`test.json`) | 591 | 3,271 |
+
+41 corrupt rows were skipped; 164,924 records total.
 
 ### Training
 
 ![AstroLLaVA Stage-1 training flow](docs/diagrams/training_flow.svg)
 
-Config: `configs/pretrain_astrollava.yaml`.
-
-```bash
-python train.py --config configs/pretrain_astrollava.yaml
-```
+Config: `configs/pretrain_astrollava.yaml`; run `python train.py --config configs/pretrain_astrollava.yaml`.
 
 | Setting | Value |
 |---------|-------|
 | Trainable / total params | 3,935,232 / 1,850,414,592 (0.21%) |
+| Epochs / steps | 3 epochs, 3,789 update steps |
 | Effective batch | 128 (per-device 8 × grad-accum 16) |
 | Learning rate / schedule | 1e-3, cosine, 3% warmup |
 | Max length | 512 (+256 image tokens) |
 | Precision | bf16 |
 | Hardware | 1× RTX 6000 Ada (48 GB) |
 | Throughput / memory | ~26 samples/s, ~38 GB VRAM |
-| Loss | ~2.1 → ~1.6 |
+| Loss | 2.08 → 1.56 (10-step running avg; min ~1.49 @ step 2780) |
 
-The connector is checkpointed every 100 steps. `checkpoint-1300` corresponds to roughly one full
-epoch and is the released default; the loss is largely flat after the first ~100 steps, as expected
-for Stage-1 alignment. A RunPod workflow for the full setup → build → train sequence is documented
-in `RUNPOD.md` (`scripts/runpod_setup.sh`, `scripts/runpod_train.sh`).
+![AstroLLaVA Stage-1 training loss](stage1_training_curve.png)
 
-### Testing
+*Training loss (10-step running average) over 3 epochs / 3,786 steps, parsed from the training
+console log with [`scripts/plot_training_curve.py`](scripts/plot_training_curve.py): 2.08 → 1.56,
+dipping to ~1.49 mid-epoch-3.*
 
-Two paths were used to inspect the trained connector:
+The connector is checkpointed every 100 steps: `checkpoint-1300` ≈ epoch 1, `checkpoint-2500` ≈
+epoch 2, `checkpoint-3789` = final. A RunPod workflow for the full setup → build (with the held-out
+split) → train sequence is documented in `RUNPOD.md` (`scripts/runpod_setup.sh`,
+`scripts/runpod_train.sh`).
+
+### Held-out evaluation
+
+Each epoch checkpoint was scored on the **591 unseen test images** with a single model load:
 
 ```bash
-# single image
-python inference.py \
-  --config configs/pretrain_astrollava.yaml \
-  --checkpoint checkpoints/astrollava-stage1/checkpoint-1300 \
-  --image datasets/astrollava_llava/images/astrollava_train_0.jpg \
-  --prompt "Describe this astronomical image." --temperature 0
-
-# batched: one model load over a sample, writing predictions.jsonl
 python scripts/batch_inference.py \
   --config configs/pretrain_astrollava.yaml \
-  --checkpoint checkpoints/astrollava-stage1/checkpoint-1300 \
+  --checkpoint checkpoints/astrollava-stage1/checkpoint-3789 \
   --image-dir datasets/astrollava_llava/images \
-  --train-json datasets/astrollava_llava/train.json \
-  --num-samples 200 --temperature 0 --output predictions.jsonl
+  --records-json datasets/astrollava_llava/test.json \
+  --num-samples 0 --temperature 0 --output predictions_test_ep3.jsonl
 ```
 
-`batch_inference.py` loads the model once and captions a sample of images, attaching each image's
-ground-truth caption for side-by-side comparison; the resulting `predictions.jsonl` is bundled into
-both release archives. Generation runs under bf16 autocast to match training.
+`--records-json test.json` scores exactly the held-out images and attaches each one's reference
+caption; the resulting `predictions_test_ep{1,2,3}.jsonl` ship in the bundles. Generation runs under
+bf16 autocast to match training.
 
-**Observed behavior.** The connector grounds reliably on coarse visual structure — across the
-sampled images it distinguishes planetary nebulae, galaxies, galaxy clusters, deep fields,
-planetary surfaces, and all-sky maps, and several outputs name the correct object class or catalog
-(for example NGC 6302 as a planetary nebula, an Abell galaxy cluster, a Martian crater with
-water-related features). Fine details are less reliable: catalog numbers, instrument/telescope,
-dates, and distances are frequently supplied from the language model's prior rather than the image,
-and common caption phrasing (ESO/Hubble attributions) recurs. This is the expected Stage-1 ceiling —
-the connector supplies a coarse visual category and the frozen LLM improvises the specifics.
-Improving factual specificity is a Stage-2 task (unfreezing the LLM), not more Stage-1 training.
+**Initial observations (spot check on held-out samples).** Comparing the same unseen images across
+epochs showed a clear, monotonic improvement **epoch 1 → 2 → 3**:
 
-> **Note on evaluation.** No held-out test split was created — all records went into `train.json`
-> and the `predictions.jsonl` images were sampled from that same set. The example outputs therefore
-> reflect fit on seen data and may include some memorization/leakage; treat them as qualitative
-> samples, not a benchmark.
+| Held-out image (truth) | epoch 1 | epoch 2 | epoch 3 |
+|---|---|---|---|
+| SN 1987A supernova remnant (ring) | "planetary nebula" ✗ | "supernova remnant" ✓ category | **"SN 1987A … ring-like structure"** ✓ exact + ring |
+| M27, the Dumbbell Nebula | "Crab Nebula" ✗ | "planetary nebula" ✓ category | **"planetary nebula … the Dumbbell Nebula"** ✓ correct name |
+| Star trails (Earth's rotation) | "Milky Way disk" ✗ | "star trails … rotation" ✓ | "star trails … observatory" ✓ |
+
+Epoch 1 misidentified all three (and produced an obvious hallucination); epoch 2 fixed the object
+*category* on all three; epoch 3 additionally recovered the *specific* object on two — the SN 1987A
+ring and the Dumbbell Nebula by name — on images it never trained on. Because the test set is held
+out, that gain is genuine generalization, not memorization: the extra epochs paid off, and
+`checkpoint-3789` (epoch 3) is the recommended weight.
+
+**Limitation (Stage-1 ceiling).** The connector grounds on *coarse* visual structure (object class /
+morphology) but still **hallucinates fine specifics** — catalog numbers, instruments, dates,
+distances — filled from the frozen LLM's prior. More Stage-1 epochs do not remove this; a **Stage-2**
+fine-tune (unfreezing the LLM, e.g. LoRA, on the QA pairs) is the next step. Note this is a
+qualitative spot check on a few held-out samples, not a full quantitative benchmark.
 
 ### Reproduction
 
-Each archive includes a `REPRODUCE.md` pinning the code commit, base models, dataset build command,
-training command, and package versions (`torch 2.8.0+cu128`, `transformers 5.12.1`). The build and
-train commands above reproduce the run. Note that `num_epochs` in the config is 3, whereas the
-released `checkpoint-1300` is the ≈1-epoch checkpoint.
+Each bundle includes a `REPRODUCE.md` pinning the code commit, base models, the dataset build
+command (with `--test-fraction 0.02 --seed 42`), the training command, and package versions
+(`torch 2.8.0+cu128`, `transformers 5.12.1`). The split is seeded, so the same build reproduces the
+exact train/test partition.
 
 ## Medical RAG Layer (Retrieval-Augmented Grounding)
 

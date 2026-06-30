@@ -13,3 +13,9 @@ rag_index/
 rag_index_astro/
 rag_results/
 rag_results_astro/
+
+# Generated eval / release artifacts — kept on Hugging Face, not committed to the repo
+*.jsonl
+*.zip
+REPRODUCE.md
+release/

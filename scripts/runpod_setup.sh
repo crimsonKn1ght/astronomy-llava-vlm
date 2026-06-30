@@ -3,7 +3,7 @@
 # Clone this repo into /workspace (a network volume) so downloads + checkpoints persist,
 # then run from the repo root:
 #
-#     bash scripts/runpod_setup.sh            # full Galaxy10 train split
+#     bash scripts/runpod_setup.sh            # full AstroLLaVA build (train + 2% held-out test)
 #     bash scripts/runpod_setup.sh 50         # smoke test with 50 samples first
 #
 set -euo pipefail
@@ -13,7 +13,7 @@ export HF_HOME="${HF_HOME:-/workspace/hf_cache}"
 mkdir -p "$HF_HOME"
 
 MAX_SAMPLES="${1:-}"
-BUILD_ARGS=(--output-dir datasets/astrollava_llava --split train --overwrite --include-qa)
+BUILD_ARGS=(--output-dir datasets/astrollava_llava --split train --overwrite --include-qa --max-image-size 384 --test-fraction 0.02)
 if [ -n "$MAX_SAMPLES" ]; then
   BUILD_ARGS+=(--max-samples "$MAX_SAMPLES")
 fi
@@ -30,5 +30,6 @@ python scripts/build_astrollava_trainset.py "${BUILD_ARGS[@]}"
 
 echo
 echo "==> Setup complete."
-echo "    Train data: datasets/astrollava_llava/train.json"
-echo "    Next:       bash scripts/runpod_train.sh"
+echo "    Train data:    datasets/astrollava_llava/train.json"
+echo "    Held-out test: datasets/astrollava_llava/test.json"
+echo "    Next:          bash scripts/runpod_train.sh"

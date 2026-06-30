@@ -132,7 +132,15 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Also emit single-turn records from the GPT-4 conversations (more samples).",
     )
-    parser.add_argument("--seed", type=int, default=42, help="Seed for prompt selection.")
+    parser.add_argument(
+        "--test-fraction",
+        type=float,
+        default=0.0,
+        help="Hold out this fraction of IMAGES as a disjoint test split (test.json). The split "
+        "is per-image (an image's caption and QA records stay together) and seeded by --seed, so "
+        "it is deterministic and reproducible. 0.0 = no test split (default).",
+    )
+    parser.add_argument("--seed", type=int, default=42, help="Seed for prompt selection / split.")
     parser.add_argument(
         "--max-image-size",
         type=int,
@@ -154,17 +162,22 @@ def parse_args() -> argparse.Namespace:
 def main() -> None:
     args = parse_args()
     rng = random.Random(args.seed)
+    split_rng = random.Random(f"{args.seed}-test-split")
 
     output_dir = Path(args.output_dir).resolve()
     image_dir = output_dir / "images"
     train_json = output_dir / f"{args.split}.json"
+    test_json = output_dir / "test.json"
 
     if train_json.exists() and not args.overwrite:
         raise SystemExit(f"{train_json} already exists. Pass --overwrite to rebuild it.")
 
     image_dir.mkdir(parents=True, exist_ok=True)
 
-    print(f"Streaming {args.hf_id} split={args.split} (cap={args.max_samples})")
+    print(
+        f"Streaming {args.hf_id} split={args.split} "
+        f"(cap={args.max_samples}, test_fraction={args.test_fraction})"
+    )
     ds = load_dataset(args.hf_id, split=args.split, streaming=not args.no_streaming)
     # Decode images ourselves (decode=False) so a corrupt/oversized image is caught by the
     # per-row try/except below instead of crashing the whole dataset iterator mid-stream.
@@ -173,7 +186,10 @@ def main() -> None:
     if args.max_samples is not None:
         rows = itertools.islice(rows, args.max_samples)
 
-    records = []
+    train_records = []
+    test_records = []
+    train_images = 0
+    test_images = 0
     caption_count = 0
     qa_count = 0
     skipped = 0
@@ -188,9 +204,15 @@ def main() -> None:
                     img.thumbnail((args.max_image_size, args.max_image_size))
                 img.save(image_path, format="JPEG", quality=90)
 
+            # Route this image (and ALL of its records) to one side, so a held-out image
+            # never leaks across the train/test boundary.
+            is_test = args.test_fraction > 0 and split_rng.random() < args.test_fraction
+            bucket = test_records if is_test else train_records
+            n_before = len(bucket)
+
             caption = (row.get("caption") or "").strip()
             if caption:
-                records.append(
+                bucket.append(
                     {
                         "id": pair_id,
                         "image": image_name,
@@ -204,21 +226,31 @@ def main() -> None:
 
             if args.include_qa:
                 qa = qa_records_from_conversation(row.get("conversation"), pair_id, image_name)
-                records.extend(qa)
+                bucket.extend(qa)
                 qa_count += len(qa)
+
+            if len(bucket) > n_before:
+                if is_test:
+                    test_images += 1
+                else:
+                    train_images += 1
         except Exception as exc:  # skip unreadable rows rather than abort the export
             skipped += 1
             print(f"Skipping row {idx}: {exc}")
 
     with train_json.open("w", encoding="utf-8") as f:
-        json.dump(records, f, ensure_ascii=False, indent=2)
+        json.dump(train_records, f, ensure_ascii=False, indent=2)
+    if args.test_fraction > 0:
+        with test_json.open("w", encoding="utf-8") as f:
+            json.dump(test_records, f, ensure_ascii=False, indent=2)
 
     print("\nExport complete")
     print(f"Caption records: {caption_count}")
     print(f"QA records:      {qa_count}")
-    print(f"Total records:   {len(records)}")
+    print(f"Train: {len(train_records)} records / {train_images} images -> {train_json}")
+    if args.test_fraction > 0:
+        print(f"Test:  {len(test_records)} records / {test_images} images -> {test_json}")
     print(f"Rows skipped:    {skipped}")
-    print(f"JSON:   {train_json}")
     print(f"Images: {image_dir}")
 
 
