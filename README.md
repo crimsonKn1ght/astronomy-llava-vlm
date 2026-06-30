@@ -18,6 +18,8 @@ This implementation bridges a frozen CLIP vision encoder (`openai/clip-vit-large
 
 ## Architecture
 
+![AstroLLaVA Stage-1 architecture](docs/diagrams/model_architecture.svg)
+
 ```
 Image (3, 224, 224)
     ↓
@@ -227,6 +229,8 @@ The resulting set was **164,924 records** (29,596 captions + 135,328 QA) over ~2
 41 rows were skipped as unreadable.
 
 ### Training
+
+![AstroLLaVA Stage-1 training flow](docs/diagrams/training_flow.svg)
 
 Config: `configs/pretrain_astrollava.yaml`.
 

@@ -1,0 +1,79 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1120" height="520" viewBox="0 0 1120 520" role="img" aria-labelledby="title desc">
+  <title id="title">AstroLLaVA Stage 1 model architecture</title>
+  <desc id="desc">Stage 1 aligns frozen CLIP image features to a frozen Qwen language model through a trainable MLP connector.</desc>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#334155"/>
+    </marker>
+    <style>
+      .bg { fill: #f8fafc; }
+      .title { fill: #0f172a; font: 700 28px Arial, sans-serif; }
+      .subtitle { fill: #475569; font: 400 15px Arial, sans-serif; }
+      .label { fill: #0f172a; font: 700 16px Arial, sans-serif; }
+      .small { fill: #334155; font: 400 13px Arial, sans-serif; }
+      .tiny { fill: #475569; font: 400 12px Arial, sans-serif; }
+      .data { fill: #ede9fe; stroke: #7c3aed; stroke-width: 2; }
+      .frozen { fill: #dbeafe; stroke: #2563eb; stroke-width: 2; }
+      .trainable { fill: #d1fae5; stroke: #059669; stroke-width: 2; }
+      .loss { fill: #fef3c7; stroke: #d97706; stroke-width: 2; }
+      .checkpoint { fill: #fce7f3; stroke: #db2777; stroke-width: 2; }
+      .line { stroke: #334155; stroke-width: 2.5; fill: none; marker-end: url(#arrow); }
+      .soft-line { stroke: #64748b; stroke-width: 2; fill: none; marker-end: url(#arrow); stroke-dasharray: 6 6; }
+    </style>
+  </defs>
+
+  <rect class="bg" width="1120" height="520" rx="24"/>
+  <text class="title" x="40" y="48">AstroLLaVA Stage 1 Architecture</text>
+  <text class="subtitle" x="40" y="75">Frozen vision and language backbones, with only the connector trained for visual-language alignment.</text>
+
+  <rect class="data" x="50" y="150" width="160" height="92" rx="14"/>
+  <text class="label" x="130" y="184" text-anchor="middle">Astronomy</text>
+  <text class="label" x="130" y="205" text-anchor="middle">image</text>
+  <text class="small" x="130" y="226" text-anchor="middle">224 x 224 input</text>
+
+  <rect class="frozen" x="280" y="140" width="190" height="112" rx="14"/>
+  <text class="label" x="375" y="174" text-anchor="middle">CLIP ViT-L/14</text>
+  <text class="small" x="375" y="198" text-anchor="middle">vision encoder</text>
+  <text class="tiny" x="375" y="222" text-anchor="middle">frozen weights</text>
+
+  <rect class="trainable" x="540" y="140" width="190" height="112" rx="14"/>
+  <text class="label" x="635" y="174" text-anchor="middle">MLP connector</text>
+  <text class="small" x="635" y="198" text-anchor="middle">1024 -> 1536</text>
+  <text class="tiny" x="635" y="222" text-anchor="middle">trainable weights</text>
+
+  <rect class="frozen" x="800" y="140" width="210" height="112" rx="14"/>
+  <text class="label" x="905" y="174" text-anchor="middle">Qwen2.5-1.5B</text>
+  <text class="small" x="905" y="198" text-anchor="middle">language model</text>
+  <text class="tiny" x="905" y="222" text-anchor="middle">frozen weights</text>
+
+  <rect class="data" x="540" y="320" width="190" height="82" rx="14"/>
+  <text class="label" x="635" y="352" text-anchor="middle">Prompt tokens</text>
+  <text class="small" x="635" y="376" text-anchor="middle">caption or QA text</text>
+
+  <rect class="loss" x="860" y="320" width="150" height="82" rx="14"/>
+  <text class="label" x="935" y="352" text-anchor="middle">Text output</text>
+  <text class="small" x="935" y="376" text-anchor="middle">next-token loss</text>
+
+  <path class="line" d="M210 196 H270"/>
+  <path class="line" d="M470 196 H530"/>
+  <path class="line" d="M730 196 H790"/>
+  <path class="line" d="M905 252 V310"/>
+  <path class="soft-line" d="M635 320 V262 C635 248 650 244 675 244 H790"/>
+
+  <text class="tiny" x="245" y="184" text-anchor="middle">pixels</text>
+  <text class="tiny" x="505" y="184" text-anchor="middle">256 patch tokens</text>
+  <text class="tiny" x="765" y="184" text-anchor="middle">image embeddings</text>
+
+  <g transform="translate(40,450)">
+    <rect class="data" x="0" y="0" width="24" height="16" rx="4"/>
+    <text class="tiny" x="34" y="13">Data / input</text>
+    <rect class="frozen" x="150" y="0" width="24" height="16" rx="4"/>
+    <text class="tiny" x="184" y="13">Frozen weights</text>
+    <rect class="trainable" x="330" y="0" width="24" height="16" rx="4"/>
+    <text class="tiny" x="364" y="13">Trainable weights</text>
+    <rect class="loss" x="535" y="0" width="24" height="16" rx="4"/>
+    <text class="tiny" x="569" y="13">Loss / output</text>
+    <rect class="checkpoint" x="690" y="0" width="24" height="16" rx="4"/>
+    <text class="tiny" x="724" y="13">Checkpoint / release</text>
+  </g>
+</svg>
