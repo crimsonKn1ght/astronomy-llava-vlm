@@ -248,7 +248,13 @@ Config: `configs/pretrain_astrollava.yaml`; run `python train.py --config config
 | Precision | bf16 |
 | Hardware | 1× RTX 6000 Ada (48 GB) |
 | Throughput / memory | ~26 samples/s, ~38 GB VRAM |
-| Loss | ~2.08 → ~1.50 |
+| Loss | 2.08 → 1.56 (10-step running avg; min ~1.49 @ step 2780) |
+
+![AstroLLaVA Stage-1 training loss](stage1_training_curve.png)
+
+*Training loss (10-step running average) over 3 epochs / 3,786 steps, parsed from the training
+console log with [`scripts/plot_training_curve.py`](scripts/plot_training_curve.py): 2.08 → 1.56,
+dipping to ~1.49 mid-epoch-3.*
 
 The connector is checkpointed every 100 steps: `checkpoint-1300` ≈ epoch 1, `checkpoint-2500` ≈
 epoch 2, `checkpoint-3789` = final. A RunPod workflow for the full setup → build (with the held-out
