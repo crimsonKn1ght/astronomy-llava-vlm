@@ -1,0 +1,81 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1120" height="560" viewBox="0 0 1120 560" role="img" aria-labelledby="title desc">
+  <title id="title">AstroLLaVA Stage 1 v2 training flow</title>
+  <desc id="desc">The final Stage 1 release uses a per-image held-out split, trains the connector for three epochs, and packages per-epoch checkpoint bundles.</desc>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#334155"/>
+    </marker>
+    <style>
+      .bg { fill: #f8fafc; }
+      .title { fill: #0f172a; font: 700 28px Arial, sans-serif; }
+      .subtitle { fill: #475569; font: 400 15px Arial, sans-serif; }
+      .label { fill: #0f172a; font: 700 16px Arial, sans-serif; }
+      .small { fill: #334155; font: 400 13px Arial, sans-serif; }
+      .tiny { fill: #475569; font: 400 12px Arial, sans-serif; }
+      .data { fill: #ede9fe; stroke: #7c3aed; stroke-width: 2; }
+      .frozen { fill: #dbeafe; stroke: #2563eb; stroke-width: 2; }
+      .trainable { fill: #d1fae5; stroke: #059669; stroke-width: 2; }
+      .loss { fill: #fef3c7; stroke: #d97706; stroke-width: 2; }
+      .checkpoint { fill: #fce7f3; stroke: #db2777; stroke-width: 2; }
+      .line { stroke: #334155; stroke-width: 2.5; fill: none; marker-end: url(#arrow); }
+      .soft-line { stroke: #64748b; stroke-width: 2; fill: none; marker-end: url(#arrow); stroke-dasharray: 6 6; }
+    </style>
+  </defs>
+
+  <rect class="bg" width="1120" height="560" rx="24"/>
+  <text class="title" x="40" y="48">AstroLLaVA Stage 1 v2 Training Flow</text>
+  <text class="subtitle" x="40" y="75">Connector-only alignment with a held-out image split, three epochs, and per-epoch release bundles.</text>
+
+  <rect class="data" x="45" y="132" width="170" height="102" rx="14"/>
+  <text class="label" x="130" y="165" text-anchor="middle">AstroLLaVA</text>
+  <text class="label" x="130" y="186" text-anchor="middle">convos</text>
+  <text class="small" x="130" y="211" text-anchor="middle">images + captions + QA</text>
+
+  <rect class="data" x="280" y="132" width="180" height="102" rx="14"/>
+  <text class="label" x="370" y="165" text-anchor="middle">Build split</text>
+  <text class="small" x="370" y="190" text-anchor="middle">train.json / test.json</text>
+  <text class="small" x="370" y="211" text-anchor="middle">image-disjoint holdout</text>
+
+  <rect class="trainable" x="525" y="132" width="190" height="102" rx="14"/>
+  <text class="label" x="620" y="165" text-anchor="middle">Stage 1 train</text>
+  <text class="small" x="620" y="190" text-anchor="middle">3 epochs, 3789 steps</text>
+  <text class="small" x="620" y="211" text-anchor="middle">connector updates only</text>
+
+  <rect class="loss" x="780" y="132" width="170" height="102" rx="14"/>
+  <text class="label" x="865" y="165" text-anchor="middle">Loss + eval</text>
+  <text class="small" x="865" y="190" text-anchor="middle">masked text loss</text>
+  <text class="small" x="865" y="211" text-anchor="middle">held-out predictions</text>
+
+  <rect class="checkpoint" x="835" y="320" width="220" height="108" rx="14"/>
+  <text class="label" x="945" y="353" text-anchor="middle">Release bundles</text>
+  <text class="small" x="945" y="378" text-anchor="middle">ep1 / ep2 / ep3 zips</text>
+  <text class="small" x="945" y="399" text-anchor="middle">checkpoint-3789 final</text>
+
+  <rect class="frozen" x="525" y="320" width="230" height="108" rx="14"/>
+  <text class="label" x="640" y="353" text-anchor="middle">Frozen backbones</text>
+  <text class="small" x="640" y="378" text-anchor="middle">CLIP ViT-L/14</text>
+  <text class="small" x="640" y="399" text-anchor="middle">Qwen2.5-1.5B</text>
+
+  <path class="line" d="M215 183 H270"/>
+  <path class="line" d="M460 183 H515"/>
+  <path class="line" d="M715 183 H770"/>
+  <path class="line" d="M865 234 V285 C865 305 885 310 925 310 V318"/>
+  <path class="soft-line" d="M640 320 V250"/>
+  <path class="soft-line" d="M780 183 H735"/>
+
+  <text class="tiny" x="748" y="170" text-anchor="middle">forward pass</text>
+  <text class="tiny" x="748" y="210" text-anchor="middle">gradients to connector</text>
+
+  <g transform="translate(40,490)">
+    <rect class="data" x="0" y="0" width="24" height="16" rx="4"/>
+    <text class="tiny" x="34" y="13">Data / input</text>
+    <rect class="frozen" x="150" y="0" width="24" height="16" rx="4"/>
+    <text class="tiny" x="184" y="13">Frozen weights</text>
+    <rect class="trainable" x="330" y="0" width="24" height="16" rx="4"/>
+    <text class="tiny" x="364" y="13">Trainable weights</text>
+    <rect class="loss" x="535" y="0" width="24" height="16" rx="4"/>
+    <text class="tiny" x="569" y="13">Loss / eval</text>
+    <rect class="checkpoint" x="690" y="0" width="24" height="16" rx="4"/>
+    <text class="tiny" x="724" y="13">Checkpoint / release</text>
+  </g>
+</svg>
