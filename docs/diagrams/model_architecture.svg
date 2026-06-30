@@ -2,7 +2,7 @@
   <title id="title">AstroLLaVA Stage 1 model architecture</title>
   <desc id="desc">Stage 1 aligns frozen CLIP image features to a frozen Qwen language model through a trainable MLP connector.</desc>
   <defs>
-    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+    <marker id="arrow" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="9" markerHeight="9" orient="auto-start-reverse">
       <path d="M 0 0 L 10 5 L 0 10 z" fill="#334155"/>
     </marker>
     <style>
@@ -17,8 +17,8 @@
       .trainable { fill: #d1fae5; stroke: #059669; stroke-width: 2; }
       .loss { fill: #fef3c7; stroke: #d97706; stroke-width: 2; }
       .checkpoint { fill: #fce7f3; stroke: #db2777; stroke-width: 2; }
-      .line { stroke: #334155; stroke-width: 2.5; fill: none; marker-end: url(#arrow); }
-      .soft-line { stroke: #64748b; stroke-width: 2; fill: none; marker-end: url(#arrow); stroke-dasharray: 6 6; }
+      .line { stroke: #334155; stroke-width: 2.5; fill: none; marker-end: url(#arrow); stroke-linecap: round; stroke-linejoin: round; }
+      .soft-line { stroke: #64748b; stroke-width: 2.25; fill: none; marker-end: url(#arrow); stroke-dasharray: 7 7; stroke-linecap: round; stroke-linejoin: round; }
     </style>
   </defs>
 
@@ -26,43 +26,43 @@
   <text class="title" x="40" y="48">AstroLLaVA Stage 1 Architecture</text>
   <text class="subtitle" x="40" y="75">Frozen vision and language backbones, with only the connector trained for visual-language alignment.</text>
 
-  <rect class="data" x="50" y="150" width="160" height="92" rx="14"/>
+  <rect class="data" x="50" y="140" width="160" height="120" rx="14"/>
   <text class="label" x="130" y="184" text-anchor="middle">Astronomy</text>
-  <text class="label" x="130" y="205" text-anchor="middle">image</text>
-  <text class="small" x="130" y="226" text-anchor="middle">224 x 224 input</text>
+  <text class="label" x="130" y="206" text-anchor="middle">image</text>
+  <text class="small" x="130" y="232" text-anchor="middle">224 x 224 input</text>
 
-  <rect class="frozen" x="280" y="140" width="190" height="112" rx="14"/>
-  <text class="label" x="375" y="174" text-anchor="middle">CLIP ViT-L/14</text>
-  <text class="small" x="375" y="198" text-anchor="middle">vision encoder</text>
-  <text class="tiny" x="375" y="222" text-anchor="middle">frozen weights</text>
+  <rect class="frozen" x="290" y="140" width="180" height="120" rx="14"/>
+  <text class="label" x="380" y="179" text-anchor="middle">CLIP ViT-L/14</text>
+  <text class="small" x="380" y="204" text-anchor="middle">vision encoder</text>
+  <text class="tiny" x="380" y="230" text-anchor="middle">frozen weights</text>
 
-  <rect class="trainable" x="540" y="140" width="190" height="112" rx="14"/>
-  <text class="label" x="635" y="174" text-anchor="middle">MLP connector</text>
-  <text class="small" x="635" y="198" text-anchor="middle">1024 -> 1536</text>
-  <text class="tiny" x="635" y="222" text-anchor="middle">trainable weights</text>
+  <rect class="trainable" x="550" y="140" width="180" height="120" rx="14"/>
+  <text class="label" x="640" y="179" text-anchor="middle">MLP connector</text>
+  <text class="small" x="640" y="204" text-anchor="middle">1024 -> 1536</text>
+  <text class="tiny" x="640" y="230" text-anchor="middle">trainable weights</text>
 
-  <rect class="frozen" x="800" y="140" width="210" height="112" rx="14"/>
-  <text class="label" x="905" y="174" text-anchor="middle">Qwen2.5-1.5B</text>
-  <text class="small" x="905" y="198" text-anchor="middle">language model</text>
-  <text class="tiny" x="905" y="222" text-anchor="middle">frozen weights</text>
+  <rect class="frozen" x="810" y="140" width="220" height="120" rx="14"/>
+  <text class="label" x="920" y="179" text-anchor="middle">Qwen2.5-1.5B</text>
+  <text class="small" x="920" y="204" text-anchor="middle">language model</text>
+  <text class="tiny" x="920" y="230" text-anchor="middle">frozen weights</text>
 
-  <rect class="data" x="540" y="320" width="190" height="82" rx="14"/>
-  <text class="label" x="635" y="352" text-anchor="middle">Prompt tokens</text>
-  <text class="small" x="635" y="376" text-anchor="middle">caption or QA text</text>
+  <rect class="data" x="620" y="330" width="170" height="82" rx="14"/>
+  <text class="label" x="705" y="362" text-anchor="middle">Prompt tokens</text>
+  <text class="small" x="705" y="387" text-anchor="middle">caption or QA text</text>
 
-  <rect class="loss" x="860" y="320" width="150" height="82" rx="14"/>
-  <text class="label" x="935" y="352" text-anchor="middle">Text output</text>
-  <text class="small" x="935" y="376" text-anchor="middle">next-token loss</text>
+  <rect class="loss" x="850" y="330" width="180" height="82" rx="14"/>
+  <text class="label" x="940" y="362" text-anchor="middle">Text output</text>
+  <text class="small" x="940" y="387" text-anchor="middle">next-token loss</text>
 
-  <path class="line" d="M210 196 H270"/>
-  <path class="line" d="M470 196 H530"/>
-  <path class="line" d="M730 196 H790"/>
-  <path class="line" d="M905 252 V310"/>
-  <path class="soft-line" d="M635 320 V262 C635 248 650 244 675 244 H790"/>
+  <path class="line" d="M210 200 H290"/>
+  <path class="line" d="M470 200 H550"/>
+  <path class="line" d="M730 200 H810"/>
+  <path class="line" d="M920 260 V330"/>
+  <path class="soft-line" d="M790 371 H800 V230 H810"/>
 
-  <text class="tiny" x="245" y="184" text-anchor="middle">pixels</text>
-  <text class="tiny" x="505" y="184" text-anchor="middle">256 patch tokens</text>
-  <text class="tiny" x="765" y="184" text-anchor="middle">image embeddings</text>
+  <text class="tiny" x="250" y="187" text-anchor="middle">pixels</text>
+  <text class="tiny" x="510" y="187" text-anchor="middle">patch tokens</text>
+  <text class="tiny" x="770" y="187" text-anchor="middle">image embeddings</text>
 
   <g transform="translate(40,450)">
     <rect class="data" x="0" y="0" width="24" height="16" rx="4"/>

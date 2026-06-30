@@ -2,7 +2,7 @@
   <title id="title">AstroLLaVA Stage 1 v1 training flow</title>
   <desc id="desc">The first Stage 1 release builds the astronomy dataset, trains only the connector, and packages checkpoint 1300 with example predictions.</desc>
   <defs>
-    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+    <marker id="arrow" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="9" markerHeight="9" orient="auto-start-reverse">
       <path d="M 0 0 L 10 5 L 0 10 z" fill="#334155"/>
     </marker>
     <style>
@@ -17,8 +17,8 @@
       .trainable { fill: #d1fae5; stroke: #059669; stroke-width: 2; }
       .loss { fill: #fef3c7; stroke: #d97706; stroke-width: 2; }
       .checkpoint { fill: #fce7f3; stroke: #db2777; stroke-width: 2; }
-      .line { stroke: #334155; stroke-width: 2.5; fill: none; marker-end: url(#arrow); }
-      .soft-line { stroke: #64748b; stroke-width: 2; fill: none; marker-end: url(#arrow); stroke-dasharray: 6 6; }
+      .line { stroke: #334155; stroke-width: 2.5; fill: none; marker-end: url(#arrow); stroke-linecap: round; stroke-linejoin: round; }
+      .soft-line { stroke: #64748b; stroke-width: 2.25; fill: none; marker-end: url(#arrow); stroke-dasharray: 7 7; stroke-linecap: round; stroke-linejoin: round; }
     </style>
   </defs>
 
@@ -26,45 +26,46 @@
   <text class="title" x="40" y="48">AstroLLaVA Stage 1 v1 Training Flow</text>
   <text class="subtitle" x="40" y="75">Connector-only alignment on astronomy captions and QA records, released around checkpoint 1300.</text>
 
-  <rect class="data" x="45" y="132" width="170" height="102" rx="14"/>
-  <text class="label" x="130" y="165" text-anchor="middle">AstroLLaVA</text>
-  <text class="label" x="130" y="186" text-anchor="middle">convos</text>
-  <text class="small" x="130" y="211" text-anchor="middle">images + captions + QA</text>
+  <rect class="data" x="45" y="130" width="170" height="104" rx="14"/>
+  <text class="label" x="130" y="164" text-anchor="middle">AstroLLaVA</text>
+  <text class="label" x="130" y="185" text-anchor="middle">convos</text>
+  <text class="small" x="130" y="210" text-anchor="middle">images + captions + QA</text>
 
-  <rect class="data" x="280" y="132" width="180" height="102" rx="14"/>
-  <text class="label" x="370" y="165" text-anchor="middle">Build trainset</text>
-  <text class="small" x="370" y="190" text-anchor="middle">JPEG images</text>
-  <text class="small" x="370" y="211" text-anchor="middle">LLaVA JSON</text>
+  <rect class="data" x="260" y="130" width="180" height="104" rx="14"/>
+  <text class="label" x="350" y="164" text-anchor="middle">Build trainset</text>
+  <text class="small" x="350" y="189" text-anchor="middle">JPEG images</text>
+  <text class="small" x="350" y="211" text-anchor="middle">LLaVA JSON records</text>
 
-  <rect class="trainable" x="525" y="132" width="190" height="102" rx="14"/>
-  <text class="label" x="620" y="165" text-anchor="middle">Stage 1 train</text>
-  <text class="small" x="620" y="190" text-anchor="middle">connector updates only</text>
-  <text class="small" x="620" y="211" text-anchor="middle">bf16, max length 512</text>
+  <rect class="trainable" x="485" y="130" width="190" height="104" rx="14"/>
+  <text class="label" x="580" y="164" text-anchor="middle">Stage 1 train</text>
+  <text class="small" x="580" y="189" text-anchor="middle">connector updates only</text>
+  <text class="small" x="580" y="211" text-anchor="middle">bf16, max length 512</text>
 
-  <rect class="loss" x="780" y="132" width="170" height="102" rx="14"/>
-  <text class="label" x="865" y="165" text-anchor="middle">Text loss</text>
-  <text class="small" x="865" y="190" text-anchor="middle">mask image tokens</text>
-  <text class="small" x="865" y="211" text-anchor="middle">caption / answer tokens</text>
+  <rect class="loss" x="720" y="130" width="175" height="104" rx="14"/>
+  <text class="label" x="807" y="164" text-anchor="middle">Text loss</text>
+  <text class="small" x="807" y="189" text-anchor="middle">mask image tokens</text>
+  <text class="small" x="807" y="211" text-anchor="middle">caption / answer tokens</text>
 
-  <rect class="checkpoint" x="835" y="320" width="220" height="108" rx="14"/>
-  <text class="label" x="945" y="353" text-anchor="middle">Release bundle</text>
-  <text class="small" x="945" y="378" text-anchor="middle">checkpoint-1300</text>
-  <text class="small" x="945" y="399" text-anchor="middle">predictions + config</text>
+  <rect class="checkpoint" x="940" y="130" width="150" height="104" rx="14"/>
+  <text class="label" x="1015" y="164" text-anchor="middle">Bundle</text>
+  <text class="small" x="1015" y="189" text-anchor="middle">checkpoint-1300</text>
+  <text class="small" x="1015" y="211" text-anchor="middle">predictions + config</text>
 
-  <rect class="frozen" x="525" y="320" width="230" height="108" rx="14"/>
-  <text class="label" x="640" y="353" text-anchor="middle">Frozen backbones</text>
-  <text class="small" x="640" y="378" text-anchor="middle">CLIP ViT-L/14</text>
-  <text class="small" x="640" y="399" text-anchor="middle">Qwen2.5-1.5B</text>
+  <rect class="frozen" x="485" y="330" width="190" height="90" rx="14"/>
+  <text class="label" x="580" y="363" text-anchor="middle">Frozen backbones</text>
+  <text class="small" x="580" y="389" text-anchor="middle">CLIP + Qwen base</text>
 
-  <path class="line" d="M215 183 H270"/>
-  <path class="line" d="M460 183 H515"/>
-  <path class="line" d="M715 183 H770"/>
-  <path class="line" d="M865 234 V285 C865 305 885 310 925 310 V318"/>
-  <path class="soft-line" d="M640 320 V250"/>
-  <path class="soft-line" d="M780 183 H735"/>
+  <path class="line" d="M215 182 H260"/>
+  <path class="line" d="M440 182 H485"/>
+  <path class="line" d="M675 182 H720"/>
+  <path class="line" d="M895 182 H940"/>
+  <path class="soft-line" d="M580 330 V234"/>
 
-  <text class="tiny" x="748" y="170" text-anchor="middle">forward pass</text>
-  <text class="tiny" x="748" y="210" text-anchor="middle">gradients to connector</text>
+  <text class="tiny" x="238" y="169" text-anchor="middle">records</text>
+  <text class="tiny" x="462" y="169" text-anchor="middle">train JSON</text>
+  <text class="tiny" x="697" y="169" text-anchor="middle">masked loss</text>
+  <text class="tiny" x="917" y="169" text-anchor="middle">package</text>
+  <text class="tiny" x="603" y="286" text-anchor="middle">base weights</text>
 
   <g transform="translate(40,490)">
     <rect class="data" x="0" y="0" width="24" height="16" rx="4"/>
