@@ -7,6 +7,8 @@
 set -euo pipefail
 
 export HF_HOME="${HF_HOME:-/workspace/hf_cache}"
+# Reduce CUDA fragmentation OOMs (the large-vocab lm_head spikes allocations).
+export PYTORCH_CUDA_ALLOC_CONF="${PYTORCH_CUDA_ALLOC_CONF:-expandable_segments:True}"
 CONFIG="${1:-configs/pretrain_astrollava.yaml}"
 
 echo "==> Training with $CONFIG (HF_HOME=$HF_HOME)"

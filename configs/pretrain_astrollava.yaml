@@ -20,8 +20,8 @@ data:
 training:
   output_dir: ./checkpoints/astrollava-stage1
   num_epochs: 3            # ~30k pairs, connector-only
-  per_device_batch_size: 32    # uses the 48 GB headroom (~20-25 GB at seq 768); drop to 8 on <24 GB
-  gradient_accumulation_steps: 4   # effective batch = 128 (unchanged)
+  per_device_batch_size: 16    # 32 OOMs: the ~152k-vocab lm_head logits dominate memory. 16 fits 48 GB
+  gradient_accumulation_steps: 8   # effective batch = 128 (unchanged)
   learning_rate: 0.001     # connector-only
   warmup_ratio: 0.03
   weight_decay: 0.0
