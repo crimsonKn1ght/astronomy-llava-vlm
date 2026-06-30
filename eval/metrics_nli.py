@@ -34,7 +34,11 @@ class NLIScorer:
         logger.info("Loaded NLI model %s", model_name)
 
     def _label_scores(self, premise: str, hypothesis: str) -> Dict[str, float]:
-        out = self.pipe({"text": premise, "text_pair": hypothesis})
+        # NLI models (e.g. roberta-large-mnli) cap at 512 tokens; long (premise, hypothesis) pairs
+        # must be truncated or the position-embedding lookup indexes out of bounds (CUDA assert).
+        out = self.pipe(
+            {"text": premise, "text_pair": hypothesis}, truncation=True, max_length=512
+        )
         # `out` is a list of {label, score} dicts (one classification, all labels).
         scores: Dict[str, float] = {}
         for item in out:

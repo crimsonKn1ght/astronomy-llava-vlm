@@ -145,6 +145,13 @@ def main() -> None:
             print(f"  [{i}/{len(records)}] generated")
 
     n = len(per_sample)
+
+    def write_out(summary: dict) -> None:
+        Path(f"{args.out}.json").write_text(json.dumps(summary, indent=2), encoding="utf-8")
+        with open(f"{args.out}.per_sample.jsonl", "w", encoding="utf-8") as f:
+            for r in per_sample:
+                f.write(json.dumps(r, ensure_ascii=False) + "\n")
+
     summary = {
         "checkpoint": args.checkpoint,
         "records_json": args.records_json,
@@ -156,11 +163,18 @@ def main() -> None:
         },
         "exact_match": aggregate_em(per_sample),
     }
+    # Persist the (expensive) generations + lexical/EM now, so a failure in the optional metrics
+    # below can never throw away the generation work.
+    write_out(summary)
 
     if not args.no_nli:
-        from eval.metrics_nli import NLIScorer, aggregate_nli
-        print(f"Scoring NLI factual-consistency with {args.nli_model} ...")
-        summary["nli"] = aggregate_nli(per_sample, NLIScorer(args.nli_model, args.device))
+        try:
+            from eval.metrics_nli import NLIScorer, aggregate_nli
+            print(f"Scoring NLI factual-consistency with {args.nli_model} ...")
+            summary["nli"] = aggregate_nli(per_sample, NLIScorer(args.nli_model, args.device))
+            write_out(summary)
+        except Exception as exc:  # noqa: BLE001 — never lose generations to an NLI failure
+            print(f"NLI scoring failed ({exc}); continuing without it.", file=sys.stderr)
 
     if not args.no_semantic:
         try:
@@ -173,14 +187,11 @@ def main() -> None:
             for r, c in zip(per_sample, cos.tolist()):
                 r["sbert_cos"] = round(float(c), 4)
             summary["semantic"] = {"sbert_cosine": round(float(cos.mean()), 4)}
-        except ImportError:
-            print("sentence-transformers not installed — skipping SBERT cosine.", file=sys.stderr)
+            write_out(summary)
+        except Exception as exc:  # noqa: BLE001
+            print(f"SBERT scoring failed ({exc}); continuing without it.", file=sys.stderr)
 
-    Path(f"{args.out}.json").write_text(json.dumps(summary, indent=2), encoding="utf-8")
-    with open(f"{args.out}.per_sample.jsonl", "w", encoding="utf-8") as f:
-        for r in per_sample:
-            f.write(json.dumps(r, ensure_ascii=False) + "\n")
-
+    write_out(summary)
     print("\n=== Summary ===")
     print(json.dumps(summary, indent=2))
     print(f"\nWrote {args.out}.json and {args.out}.per_sample.jsonl")
