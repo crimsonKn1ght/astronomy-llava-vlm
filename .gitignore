@@ -1,0 +1,15 @@
+.venv/
+__pycache__/
+checkpoints/
+# Generated training data (build scripts write here; can be several GB)
+datasets/
+hf_cache/
+
+# Generated RAG artifacts: downloaded/cached images, FAISS/BM25 indexes, eval outputs
+data/corpus/
+data/corpus_astro/
+rag_cache/
+rag_index/
+rag_index_astro/
+rag_results/
+rag_results_astro/
