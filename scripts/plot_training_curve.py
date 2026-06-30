@@ -94,7 +94,7 @@ def summarize(rows: list) -> None:
         print(f"  throughput   : ~{avg_sps:.1f} samples/s (avg of logged points)")
 
 
-def plot(rows: list, out_stem: str) -> None:
+def plot(rows: list, out_stem: str, title: str = "Training loss") -> None:
     try:
         import matplotlib
         matplotlib.use("Agg")  # headless (works on a pod with no display)
@@ -119,7 +119,7 @@ def plot(rows: list, out_stem: str) -> None:
         ax2.set_ylabel("learning rate", color="tab:orange")
         ax2.tick_params(axis="y", labelcolor="tab:orange")
 
-    plt.title("AstroLLaVA Stage-2 training")
+    plt.title(title)
     fig.tight_layout()
     png_path = Path(f"{out_stem}.png")
     fig.savefig(png_path, dpi=150)
@@ -134,6 +134,7 @@ def parse_args() -> argparse.Namespace:
                    help="Instead of a log, read sparse {step,loss} from checkpoint-*/meta.json here.")
     p.add_argument("--out", default="training_curve", help="Output stem (.csv/.json/.png).")
     p.add_argument("--plot", action="store_true", help="Also render a PNG (needs matplotlib).")
+    p.add_argument("--title", default="Training loss", help="Plot title.")
     return p.parse_args()
 
 
@@ -152,7 +153,7 @@ def main() -> None:
     write_outputs(rows, args.out)
     summarize(rows)
     if args.plot:
-        plot(rows, args.out)
+        plot(rows, args.out, args.title)
 
 
 if __name__ == "__main__":

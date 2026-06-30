@@ -361,6 +361,12 @@ python inference.py \
 | Hardware | 1× RTX 6000 Ada (48 GB), ~15 samples/s (~3 h) |
 | Held-out loss | 1.60 → **1.452** (monotonic), recomputed per checkpoint on 512 held-out samples via [`scripts/eval_loss_curve.py`](scripts/eval_loss_curve.py); plateaus by end of epoch |
 
+![AstroLLaVA Stage-2 held-out loss curve](eval_loss_curve.png)
+
+*Held-out validation loss per checkpoint (recomputed from the saved checkpoints on 512 unseen
+`test.json` samples — the dense per-step training log wasn't retained). Monotonic 1.60 → 1.45,
+flattening by the end of the single epoch.*
+
 ### Train
 
 Reuse the **same** `train.json` / `images/` from the Stage-1 build (caption + QA, with the held-out
