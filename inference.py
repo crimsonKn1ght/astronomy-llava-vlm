@@ -57,12 +57,16 @@ def run_inference(
         "eos_token_id": tokenizer.convert_tokens_to_ids("<|im_end|>"),
     }
 
-    output_ids = model.generate(
-        input_ids=input_ids,
-        images=pixel_values,
-        attention_mask=attention_mask,
-        **generate_kwargs,
-    )
+    # The LLM weights are bf16 (per config) but the connector/image embeds are fp32. Training
+    # reconciled this via Accelerate's autocast; mirror that here so the dtypes match.
+    autocast_device = "cuda" if device.startswith("cuda") else "cpu"
+    with torch.autocast(device_type=autocast_device, dtype=torch.bfloat16):
+        output_ids = model.generate(
+            input_ids=input_ids,
+            images=pixel_values,
+            attention_mask=attention_mask,
+            **generate_kwargs,
+        )
 
     response = tokenizer.decode(output_ids[0], skip_special_tokens=False)
 
