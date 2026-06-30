@@ -1,7 +1,9 @@
 .venv/
 __pycache__/
 checkpoints/
-datasets/llava_recap_558k/
+# Generated training data (build scripts write here; can be several GB)
+datasets/
+hf_cache/
 
 # Generated RAG artifacts: downloaded/cached images, FAISS/BM25 indexes, eval outputs
 data/corpus/

@@ -100,6 +100,7 @@ class VLMTrainer:
         global_step = 0
         running_loss = 0.0
         start_time = time.time()
+        grad_checked = False
 
         self.model.train()
         # Re-freeze vision encoder and LLM (accelerator.prepare may reset eval mode)
@@ -123,6 +124,18 @@ class VLMTrainer:
                     self.accelerator.backward(loss)
 
                     if self.accelerator.sync_gradients:
+                        # Sanity check once, BEFORE zero_grad clears the grads: the connector
+                        # must receive gradient from the loss (i.e. the image-embedding merge
+                        # path is not detached).
+                        if not grad_checked:
+                            assert any(
+                                p.grad is not None
+                                for p in unwrapped.connector.parameters()
+                            ), (
+                                "Connector received no gradient before the optimizer step — "
+                                "the image-embedding merge path is detached from the loss."
+                            )
+                            grad_checked = True
                         self.accelerator.clip_grad_norm_(
                             unwrapped.connector.parameters(),
                             self.max_grad_norm,
@@ -136,12 +149,6 @@ class VLMTrainer:
 
                 if self.accelerator.sync_gradients:
                     global_step += 1
-
-                    if global_step == 1:
-                        for p in unwrapped.connector.parameters():
-                            assert (
-                                p.grad is not None or not p.requires_grad
-                            ), "Connector gradient is None after first step"
 
                     if global_step % self.logging_steps == 0:
                         avg_loss = running_loss / (

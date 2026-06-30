@@ -28,7 +28,9 @@ Use ``--max-samples 50`` first for a quick smoke test, then re-run with ``--over
 import argparse
 import itertools
 import json
+import os
 import random
+import sys
 from pathlib import Path
 
 from datasets import load_dataset
@@ -114,6 +116,13 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--seed", type=int, default=42, help="Seed for prompt selection.")
     parser.add_argument(
+        "--max-image-size",
+        type=int,
+        default=None,
+        help="If set, downscale each image so its long side is at most this many pixels. "
+        "CLIP only uses 224x224, so e.g. 384 keeps quality while shrinking disk a lot.",
+    )
+    parser.add_argument(
         "--no-streaming",
         action="store_true",
         help="Download via the datasets cache instead of streaming rows.",
@@ -150,10 +159,13 @@ def main() -> None:
     for idx, row in enumerate(tqdm(rows, total=args.max_samples, desc="Exporting")):
         try:
             pair_id = f"astrollava_{args.split}_{idx}"
-            image_name = f"{pair_id}.png"
+            image_name = f"{pair_id}.jpg"
             image_path = image_dir / image_name
             if not image_path.exists():
-                row["image"].convert("RGB").save(image_path)
+                img = row["image"].convert("RGB")
+                if args.max_image_size:
+                    img.thumbnail((args.max_image_size, args.max_image_size))
+                img.save(image_path, format="JPEG", quality=90)
 
             caption = (row.get("caption") or "").strip()
             if caption:
@@ -191,3 +203,10 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+    # The `datasets` streaming backend (hf_xet / pyarrow worker threads) can abort during
+    # interpreter shutdown with "PyGILState_Release: thread state must be current". The
+    # export is fully flushed to disk by now, so exit hard to skip the buggy finalizer and
+    # return a clean exit code (otherwise runpod_setup.sh sees a false failure).
+    sys.stdout.flush()
+    sys.stderr.flush()
+    os._exit(0)
