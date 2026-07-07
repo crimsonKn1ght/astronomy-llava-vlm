@@ -320,9 +320,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--label", default=None, help="Model label stored in the summary.")
     parser.add_argument("--out", default=None, help="Output stem. Defaults to <predictions>_metrics.")
     parser.add_argument("--no-nli", action="store_true", help="Skip NLI factual-consistency.")
-    parser.add_argument("--nli-model", default="roberta-large-mnli")
+    parser.add_argument("--nli-model", default="microsoft/deberta-large-mnli")
     parser.add_argument("--no-semantic", action="store_true", help="Skip SBERT cosine.")
-    parser.add_argument("--sbert-model", default="sentence-transformers/all-MiniLM-L6-v2")
+    parser.add_argument("--sbert-model", default="sentence-transformers/all-mpnet-base-v2")
     parser.add_argument("--device", default="cpu", help="Use cpu locally, or cuda on the GPU pod.")
     return parser.parse_args()
 

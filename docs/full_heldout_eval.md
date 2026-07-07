@@ -79,3 +79,43 @@ Outputs are written under `eval_runs/full_heldout/`:
 The metrics are produced by `scripts/score_predictions.py`: ROUGE-L, token-F1,
 exact match, specificity hallucination, NLI consistency, contradiction rate, and
 SBERT cosine. Summaries include `overall`, `splits.caption`, and `splits.qa`.
+
+## Release artifacts
+
+The preprint-facing release ZIPs are:
+
+| Artifact | SHA256 |
+| --- | --- |
+| `astrollava-stage1-full-heldout-eval-v1.zip` | `4B2B38C8F40B7345979F7D9E078453CE8FC23FBC87C77BC462CF5F7DD11DEEC1` |
+| `astrollava-stage2-full-heldout-eval-v1.zip` | `9D940A77C4F072A00F925588069C6B1E8670891F5DFA1126489B914FA144CF99` |
+| `qwen2_5-vl-7b-full-heldout-eval-v1.zip` | `602B6708D6F31898149942EEF85CEF87E9FE13874511F1E3BCB8E97FA98939C5` |
+| `astrollava-reference-full-heldout-eval-v1.zip` | `F014B70908AA0EDCF27BECDECDF9940EF8F286935114F3F18B5B9B66965C92F5` |
+
+Each ZIP contains the held-out split, predictions, aggregate metrics,
+per-sample metrics, comparison rows when applicable, and a reproduction note.
+
+## Overall comparison
+
+| Model | n | ROUGE-L up | Token-F1 up | Exact match up | Specificity halluc. down | Pred. specifics / rec. | Unsupported / rec. down | Spec. precision up | SBERT up | NLI up | Contradiction down |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| Stage-1 epoch 3 | 3271 | 0.3116 | 0.3672 | 0.0272 | 0.2372 | 0.4632 | 0.3733 | 0.1941 | 0.7150 | -0.1084 | 0.5671 |
+| Stage-2 | 3271 | **0.3404** | **0.3948** | **0.0339** | 0.2284 | 0.4405 | 0.3369 | **0.2353** | **0.7313** | -0.0795 | 0.5436 |
+| Qwen2.5-VL-7B | 3271 | 0.1610 | 0.2156 | 0.0003 | 0.2727 | 0.5812 | 0.4946 | 0.1489 | 0.6224 | **0.0281** | **0.1764** |
+| AstroLLaVA reference | 3240 | 0.1759 | 0.1993 | 0.0000 | **0.1722** | 0.2423 | **0.2207** | 0.0892 | 0.4656 | 0.0101 | 0.5836 |
+
+Interpretation:
+
+- Stage-2 improves in-domain reference alignment over Stage-1 epoch 3.
+- Stage-2 reduces unsupported specifics compared with Stage-1 while also improving the detected
+  specificity precision proxy, so the gain is not only reduced verbosity.
+- Qwen2.5-VL-7B is much stronger on the NLI contradiction proxy, so the comparison should not be
+  framed as universal factual superiority for Stage-2.
+- AstroLLaVA reference is a domain comparator with possible data-lineage overlap and 31 missing
+  predictions in this scoring run.
+
+## Paired bootstrap highlights
+
+The paired bootstrap script compares common held-out records. For Stage-2 vs Stage-1 epoch 3 on the
+overall split, the 95% intervals exclude zero for ROUGE-L, token-F1, exact match, unsupported
+specifics per record, SBERT, NLI, and contradiction rate. The specificity hallucination-rate
+interval overlaps zero, so describe that metric directionally.

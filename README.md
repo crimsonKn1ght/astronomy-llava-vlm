@@ -415,49 +415,43 @@ python inference.py \
   --prompt "What type of object is this and what is notable about it?" \
   --temperature 0
 
-# Held-out comparison vs Stage-1 on the SAME unseen images:
-python scripts/batch_inference.py \
-  --config configs/finetune_astrollava_stage2.yaml \
-  --checkpoint checkpoints/astrollava-stage2/checkpoint-2526 \
-  --image-dir datasets/astrollava_llava/images \
-  --records-json datasets/astrollava_llava/test.json \
-  --num-samples 0 --temperature 0 --output predictions_test_stage2.jsonl
+# Full held-out comparison on every caption + QA record:
+python scripts/run_full_heldout_eval.py \
+  --stage stage2 \
+  --num-samples 0 \
+  --resume \
+  --package
 ```
 
-The released caption prediction files were also scored offline with `scripts/score_predictions.py`.
-This is a **caption-only** evaluation over the bundled prediction JSONL files, not a fresh generation
-run and not yet the full caption + QA benchmark. Each file contains 591 rows; 586 rows were scored
-and 5 were skipped in every run, so the comparison is like-for-like.
+The preprint-facing benchmark scores all 3,271 held-out caption + QA records with one shared
+pipeline: ROUGE-L, token-F1, exact match, specificity hallucination, unsupported specifics, SBERT,
+NLI consistency, and contradiction rate. See `docs/full_heldout_eval.md`,
+`docs/qwen_vl_full_heldout_baseline.md`, and `docs/astrollava_reference_full_heldout_baseline.md`.
 
-| Model | scored / rows | ROUGE-L up | Token-F1 up | Exact match up | Specificity halluc. down | Unsupported specifics / record down | Records with predicted specifics down | SBERT cosine up | NLI consistency up | Contradiction rate down |
-|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| Stage-1 epoch 1 | 586 / 591 | 0.1487 | 0.2055 | 0.0000 | 0.6741 | 1.2816 | 449 | 0.5501 | -0.1292 | 0.6980 |
-| Stage-1 epoch 2 | 586 / 591 | 0.1586 | 0.2144 | 0.0000 | 0.6655 | 1.2509 | 447 | 0.5733 | -0.1566 | 0.7287 |
-| Stage-1 epoch 3 | 586 / 591 | 0.1612 | 0.2230 | 0.0000 | 0.6263 | 1.1536 | 439 | 0.5822 | -0.1376 | 0.7184 |
-| Stage-2 | 586 / 591 | 0.1719 | 0.2292 | 0.0051 | 0.5785 | 0.9795 | 404 | 0.5912 | -0.1630 | 0.6928 |
+Overall held-out comparison:
 
-Against the final Stage-1 checkpoint (`checkpoint-3789`), Stage-2 improves most caption metrics:
+| Model | n | ROUGE-L up | Token-F1 up | Exact match up | Specificity halluc. down | Pred. specifics / rec. | Unsupported / rec. down | Spec. precision up | SBERT up | NLI up | Contradiction down |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| Stage-1 epoch 3 | 3271 | 0.3116 | 0.3672 | 0.0272 | 0.2372 | 0.4632 | 0.3733 | 0.1941 | 0.7150 | -0.1084 | 0.5671 |
+| Stage-2 | 3271 | **0.3404** | **0.3948** | **0.0339** | 0.2284 | 0.4405 | 0.3369 | **0.2353** | **0.7313** | -0.0795 | 0.5436 |
+| Qwen2.5-VL-7B | 3271 | 0.1610 | 0.2156 | 0.0003 | 0.2727 | 0.5812 | 0.4946 | 0.1489 | 0.6224 | **0.0281** | **0.1764** |
+| AstroLLaVA reference | 3240 | 0.1759 | 0.1993 | 0.0000 | **0.1722** | 0.2423 | **0.2207** | 0.0892 | 0.4656 | 0.0101 | 0.5836 |
 
-| Metric | Stage-1 epoch 3 | Stage-2 | Change |
-|---|---:|---:|---:|
-| ROUGE-L | 0.1612 | 0.1719 | +0.0107 |
-| Token-F1 | 0.2230 | 0.2292 | +0.0062 |
-| Exact match | 0.0000 | 0.0051 | +0.0051 |
-| Specificity hallucination | 0.6263 | 0.5785 | -0.0478 |
-| Unsupported specifics / record | 1.1536 | 0.9795 | -0.1741 |
-| Records with predicted specifics | 439 | 404 | -35 |
-| SBERT cosine | 0.5822 | 0.5912 | +0.0090 |
-| NLI consistency | -0.1376 | -0.1630 | -0.0254 |
-| Contradiction rate | 0.7184 | 0.6928 | -0.0256 |
+The current result story is deliberately nuanced: Stage-2 improves in-domain held-out reference
+alignment and reduces unsupported specifics compared with Stage-1, while Qwen2.5-VL is much less
+contradictory under the NLI proxy. The unsupported-specific gain is not just a "says less" result:
+Stage-2 emits slightly fewer detected specifics than Stage-1 (0.4405 vs 0.4632 per record), but its
+reference-supported specificity precision proxy rises from 0.1941 to 0.2353. AstroLLaVA reference is
+included as a domain comparator, but it has possible data-lineage overlap and 31 unscored rows that
+should be inspected before final paper claims.
 
-The strongest gain is on the project-specific hallucination measures: specificity hallucination
-drops from 0.6263 to 0.5785, and unsupported specifics per caption drop from 1.1536 to 0.9795.
-Contradiction rate also improves, though NLI consistency becomes slightly worse; the NLI model is
-`microsoft/deberta-large-mnli`, a general-domain judge, so read it as an imperfect relative signal.
-SBERT uses `sentence-transformers/all-mpnet-base-v2`.
+The release ZIPs used for the table are committed under `eval_runs/full_heldout/` with checksums in
+`eval_runs/full_heldout/SHA256SUMS.txt`. Each ZIP contains the held-out `test.json`, predictions,
+aggregate metrics, per-sample metrics, and reproduction notes for that model family.
 
-The result is directionally good but not solved: Stage-2 is the strongest model in this caption-only
-evaluation, yet 57.85% of scored captions still contain at least one unsupported specific detail.
+For preprint-strength analysis, run the offline workflow in
+`docs/preprint_offline_analysis.md`: paired bootstrap confidence intervals, AstroLLaVA skipped-row
+inspection, honestly mined qualitative examples, and a 100-200 item human/LLM judge sample.
 
 ## Medical RAG Layer (Retrieval-Augmented Grounding)
 
