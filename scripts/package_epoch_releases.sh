@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Package per-epoch release artifacts for the AstroLLaVA Stage-1 (held-out) run.
+# Package per-epoch release artifacts for the AstraQ-VL Stage-1 (held-out) run.
 # Run from the repo root after training + held-out inference. Produces three zips:
 #   astrollava-stage1-ep1.zip / -ep2.zip / -ep3.zip
 # Each bundles: the epoch's checkpoint, its held-out predictions, the training config,
@@ -37,10 +37,10 @@ for ep in 1 2 3; do
   cp "$preds" "$CONFIG" "$TEST_JSON" "$stage/"
 
   cat > "$stage/REPRODUCE.md" <<EOF
-# AstroLLaVA Stage-1 — epoch $ep (checkpoint-$step)
+# AstraQ-VL Stage-1 — epoch $ep (checkpoint-$step)
 
 - Checkpoint: checkpoint-$step (epoch $ep representative, train loss $loss)
-- Code: github.com/crimsonKn1ght/astronomy-vlm @ $COMMIT (branch $BRANCH)
+- Code: github.com/crimsonKn1ght/astraq-vl @ $COMMIT (branch $BRANCH)
 - Base: vision openai/clip-vit-large-patch14 + LLM Qwen/Qwen2.5-1.5B-Instruct (connector-only, ~3.9M params)
 - Versions: $VERS
 

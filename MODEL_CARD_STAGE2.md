@@ -9,6 +9,7 @@ language:
   - en
 pipeline_tag: image-text-to-text
 tags:
+  - astraq-vl
   - vision-language-model
   - llava
   - astronomy
@@ -19,11 +20,11 @@ tags:
   - connector
 ---
 
-# AstroLLaVA Stage-2 (connector + LoRA instruction tuning)
+# AstraQ-VL Stage-2 (connector + LoRA instruction tuning)
 
 A LLaVA-style vision–language model that lets **Qwen2.5-1.5B-Instruct** answer questions about
-astronomy images encoded by **CLIP ViT-L/14**. This is the **Stage-2** model: it warm-starts the
-[Stage-1 connector](https://huggingface.co/grKnight/astrollava-stage1) and **continues training it
+astronomy images encoded by **CLIP ViT-L/14**. This is the **AstraQ-VL Stage-2** model: it warm-starts the
+[AstraQ-VL Stage-1 connector](https://huggingface.co/grKnight/astrollava-stage1) and **continues training it
 jointly with LoRA adapters on the Qwen LLM**, on the caption + GPT-4 QA records of
 [`UniverseTBD/AstroLLaVA_convos`](https://huggingface.co/datasets/UniverseTBD/AstroLLaVA_convos).
 The CLIP vision tower stays frozen. Trained on a **disjoint held-out test split** so it can be
@@ -35,7 +36,7 @@ visual evidence when committing to answers — the recipe's instruction-tuning s
 
 > ⚠️ This bundle ships the **connector + LoRA adapter only** (not full LLM weights). It is **not** a
 > standalone `transformers` model — it needs the custom VLM code from the
-> [astronomy-vlm](https://github.com/crimsonKn1ght/astronomy-vlm) repo, the two base models
+> [astraq-vl](https://github.com/crimsonKn1ght/astraq-vl) repo, the two base models
 > (auto-downloaded from the Hub), and [`peft`](https://github.com/huggingface/peft) to run.
 
 ## Download
@@ -95,7 +96,7 @@ end of the single epoch, consistent with the 1-epoch choice:
 |------|----:|----:|----:|----:|-----:|-----:|-----:|-----:|-----:|-----:|-----:|-----:|-----:|
 | held-out loss | 1.605 | 1.571 | 1.548 | 1.526 | 1.508 | 1.494 | 1.479 | 1.471 | 1.462 | 1.456 | 1.454 | 1.452 | **1.452** |
 
-![AstroLLaVA Stage-2 held-out loss curve](eval_loss_curve.png)
+![AstraQ-VL Stage-2 held-out loss curve](eval_loss_curve.png)
 
 Regenerate with `python scripts/eval_loss_curve.py --config configs/finetune_astrollava_stage2.yaml
 --checkpoint-dir checkpoints/astrollava-stage2 --records-json datasets/astrollava_llava/test.json
@@ -106,7 +107,7 @@ Regenerate with `python scripts/eval_loss_curve.py --config configs/finetune_ast
 
 ```bash
 # 1. get the code
-git clone https://github.com/crimsonKn1ght/astronomy-vlm && cd astronomy-vlm
+git clone https://github.com/crimsonKn1ght/astraq-vl && cd astraq-vl
 pip install -r requirements.txt        # includes peft
 
 # 2. download + unzip the bundle
@@ -158,6 +159,6 @@ eval:   python scripts/batch_inference.py --config configs/finetune_astrollava_s
 - **Training data:** [`UniverseTBD/AstroLLaVA_convos`](https://huggingface.co/datasets/UniverseTBD/AstroLLaVA_convos)
   (CC-BY-SA-4.0); imagery from NASA APOD, ESO, and NASA/ESA Hubble.
 - **Base models:** Qwen2.5-1.5B-Instruct (Apache-2.0), CLIP ViT-L/14 (OpenAI, MIT).
-- **Builds on:** [AstroLLaVA Stage-1](https://huggingface.co/grKnight/astrollava-stage1) and the
+- **Builds on:** [AstraQ-VL Stage-1](https://huggingface.co/grKnight/astrollava-stage1) and the
   AstroLLaVA work ([arXiv:2504.08583](https://arxiv.org/abs/2504.08583)).
 ```

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Package the AstroLLaVA Stage-2 release bundle.
+# Package the AstraQ-VL Stage-2 release bundle.
 # Run from the repo root after training + held-out inference. Produces:
 #   astrollava-stage2.zip
 # Contents: checkpoint-2526/ (connector.safetensors + lora/), predictions_test_stage2.jsonl,
@@ -39,10 +39,10 @@ cp -r "$CKPT" "$STAGE/"
 cp "$PREDS" "$CONFIG" "$TEST_JSON" "$STAGE/"
 
 cat > "$STAGE/REPRODUCE.md" <<EOF
-# AstroLLaVA Stage-2 — checkpoint-$STEP (final, 1 epoch)
+# AstraQ-VL Stage-2 — checkpoint-$STEP (final, 1 epoch)
 
 - Checkpoint: checkpoint-$STEP (train loss $loss)
-- Code: github.com/crimsonKn1ght/astronomy-vlm @ $COMMIT (branch $BRANCH)
+- Code: github.com/crimsonKn1ght/astraq-vl @ $COMMIT (branch $BRANCH)
 - Base: vision openai/clip-vit-large-patch14 + LLM Qwen/Qwen2.5-1.5B-Instruct
 - Trainable: connector (~3.9M, warm-started from Stage-1 checkpoint-3789) + LoRA adapters (~18.5M, r=16, q/k/v/o/gate/up/down_proj)
 - Versions: $VERS

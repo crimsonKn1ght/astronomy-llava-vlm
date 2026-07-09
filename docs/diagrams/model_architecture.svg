@@ -1,5 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1120" height="560" viewBox="0 0 1120 560" role="img" aria-labelledby="title desc">
-  <title id="title">AstroLLaVA Stage 2 model architecture</title>
+  <title id="title">AstraQ-VL Stage 2 model architecture</title>
   <desc id="desc">Stage 2 keeps the vision encoder frozen, warm-starts the connector from Stage 1, and trains connector plus LoRA adapters on top of a frozen Qwen language model.</desc>
   <defs>
     <marker id="arrow" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="9" markerHeight="9" orient="auto-start-reverse">
@@ -23,7 +23,7 @@
   </defs>
 
   <rect class="bg" width="1120" height="560" rx="24"/>
-  <text class="title" x="40" y="48">AstroLLaVA Stage 2 Architecture</text>
+  <text class="title" x="40" y="48">AstraQ-VL Stage 2 Architecture</text>
   <text class="subtitle" x="40" y="75">Stage 2 reuses the aligned connector and trains connector plus LoRA adapters while CLIP and the base LLM stay frozen.</text>
 
   <rect class="data" x="50" y="140" width="160" height="120" rx="14"/>

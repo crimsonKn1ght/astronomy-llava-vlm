@@ -1,6 +1,6 @@
-# Vision-Language Model (VLM) — Stage 1 Alignment + Stage 2 Instruction Tuning
+# AstraQ-VL: Vision-Language Model (VLM) — Stage 1 Alignment + Stage 2 Instruction Tuning
 
-A minimal, efficient implementation of a Vision-Language Model following the LLaVA architecture. **Stage 1** trains only a lightweight MLP connector to align frozen CLIP vision features with a frozen LLM. **Stage 2** then warm-starts that connector and fine-tunes the LLM with LoRA adapters on instruction (QA) data — closing the gap between coarse grounding and factual specificity, at minimal computational cost.
+AstraQ-VL is a minimal, efficient astronomy Vision-Language Model following the LLaVA architecture. **Stage 1** trains only a lightweight MLP connector to align frozen CLIP vision features with a frozen LLM. **Stage 2** then warm-starts that connector and fine-tunes the LLM with LoRA adapters on instruction (QA) data — closing the gap between coarse grounding and factual specificity, at minimal computational cost.
 
 ## Overview
 
@@ -11,16 +11,16 @@ This implementation bridges a frozen CLIP vision encoder (`openai/clip-vit-large
 - **Efficiency**: Frozen models save memory; only train the connector
 - **Proven approach**: Follows LLaVA Stage 1 alignment, a well-validated recipe
 
-> Models trained with this codebase on astronomy image–text data are released on the Hub:
-> **Stage 1** (connector) at [`grKnight/astrollava-stage1`](https://huggingface.co/grKnight/astrollava-stage1)
-> and **Stage 2** (connector + LoRA) at [`grKnight/astrollava-stage2`](https://huggingface.co/grKnight/astrollava-stage2).
-> See [Trained Model: AstroLLaVA Stage-1](#trained-model-astrollava-stage-1-astronomy) and
-> [Stage 2: Visual Instruction Tuning (LoRA)](#stage-2-visual-instruction-tuning-lora) for dataset,
+> AstraQ-VL checkpoints trained with this codebase on astronomy image–text data are released on the Hub:
+> **AstraQ-VL Stage 1** (connector) at [`grKnight/astrollava-stage1`](https://huggingface.co/grKnight/astrollava-stage1)
+> and **AstraQ-VL Stage 2** (connector + LoRA) at [`grKnight/astrollava-stage2`](https://huggingface.co/grKnight/astrollava-stage2).
+> See [Trained Model: AstraQ-VL Stage-1](#trained-model-astraq-vl-stage-1-astronomy) and
+> [Stage 2: Visual Instruction Tuning (LoRA)](#astraq-vl-stage-2-visual-instruction-tuning-lora) for dataset,
 > training, testing, and download details.
 
 ## Architecture
 
-![AstroLLaVA Stage-2 architecture](docs/diagrams/model_architecture.svg)
+![AstraQ-VL Stage-2 architecture](docs/diagrams/model_architecture.svg)
 
 ```
 Image (3, 224, 224)
@@ -50,7 +50,7 @@ pip install -r requirements.txt
 - Python ≥ 3.10
 - PyTorch ≥ 2.1.0
 - CUDA 11.8+ (for GPU training)
-- GPU memory scales with caption length: short-caption datasets (e.g. LLaVA-Pretrain) are light, while the astronomy Stage-1 run (long captions + QA, batch 8) measured **~38 GB** on an RTX 6000 Ada — see [Trained Model: AstroLLaVA Stage-1](#trained-model-astrollava-stage-1-astronomy)
+- GPU memory scales with caption length: short-caption datasets (e.g. LLaVA-Pretrain) are light, while the AstraQ-VL Stage-1 run (long captions + QA, batch 8) measured **~38 GB** on an RTX 6000 Ada — see [Trained Model: AstraQ-VL Stage-1](#trained-model-astraq-vl-stage-1-astronomy)
 
 ## Quick Start
 
@@ -153,9 +153,9 @@ vlm/
 
 **Trainable Parameters**: ~3.9M (only the MLP connector)
 **Frozen Parameters**: ~1.8B (CLIP + LLM)
-**GPU Memory**: ~6–8 GB (batch_size=8, bf16) for short-caption datasets like LLaVA-Pretrain. Memory scales with sequence length: the astronomy Stage-1 run (long captions + QA, `max_length 512`) measured **~38 GB at batch_size=8** on an RTX 6000 Ada — plan on a 40 GB+ GPU at that batch, or a smaller batch / shorter `max_length` on 24 GB.
+**GPU Memory**: ~6–8 GB (batch_size=8, bf16) for short-caption datasets like LLaVA-Pretrain. Memory scales with sequence length: the AstraQ-VL Stage-1 run (long captions + QA, `max_length 512`) measured **~38 GB at batch_size=8** on an RTX 6000 Ada — plan on a 40 GB+ GPU at that batch, or a smaller batch / shorter `max_length` on 24 GB.
 
-For measured throughput and training time on real data, see [Trained Model: AstroLLaVA Stage-1](#trained-model-astrollava-stage-1-astronomy) (~26 samples/s on an RTX 6000 Ada).
+For measured throughput and training time on real data, see [Trained Model: AstraQ-VL Stage-1](#trained-model-astraq-vl-stage-1-astronomy) (~26 samples/s on an RTX 6000 Ada).
 
 ## What Gets Trained
 
@@ -187,9 +187,9 @@ During inference:
 
 The `<image>` token in the prompt is automatically replaced with visual embeddings; it does not appear in the final token sequence.
 
-## Trained Model: AstroLLaVA Stage-1 (Astronomy)
+## Trained Model: AstraQ-VL Stage-1 (Astronomy)
 
-The Stage-1 connector trained with this codebase is released on the Hugging Face Hub:
+The AstraQ-VL Stage-1 connector trained with this codebase is released on the Hugging Face Hub:
 
 **https://huggingface.co/grKnight/astrollava-stage1**
 
@@ -304,7 +304,7 @@ command (with `--test-fraction 0.02 --seed 42`), the training command, and packa
 (`torch 2.8.0+cu128`, `transformers 5.12.1`). The split is seeded, so the same build reproduces the
 exact train/test partition.
 
-## Stage 2: Visual Instruction Tuning (LoRA)
+## AstraQ-VL Stage 2: Visual Instruction Tuning (LoRA)
 
 Stage 1 trains only the connector, so it grounds *coarse* visual structure but **hallucinates fine
 specifics** (catalog numbers, instruments, dates, distances) — the frozen LLM fills those from its
@@ -324,7 +324,7 @@ pip install peft
 
 ### Released weights
 
-The Stage-2 model trained with this codebase is published on the Hugging Face Hub:
+The AstraQ-VL Stage-2 model trained with this codebase is published on the Hugging Face Hub:
 
 **https://huggingface.co/grKnight/astrollava-stage2**
 
@@ -363,7 +363,7 @@ python inference.py \
 | Hardware | 1× RTX 6000 Ada (48 GB), ~15 samples/s (~3 h) |
 | Held-out loss | 1.60 → **1.452** (monotonic), recomputed per checkpoint on 512 held-out samples via [`scripts/eval_loss_curve.py`](scripts/eval_loss_curve.py); plateaus by end of epoch |
 
-![AstroLLaVA Stage-2 held-out loss curve](eval_loss_curve.png)
+![AstraQ-VL Stage-2 held-out loss curve](eval_loss_curve.png)
 
 *Held-out validation loss per checkpoint (recomputed from the saved checkpoints on 512 unseen
 `test.json` samples — the dense per-step training log wasn't retained). Monotonic 1.60 → 1.45,
@@ -371,7 +371,7 @@ flattening by the end of the single epoch.*
 
 ### Train
 
-![AstroLLaVA Stage-2 training flow](docs/diagrams/training_flow.svg)
+![AstraQ-VL Stage-2 training flow](docs/diagrams/training_flow.svg)
 
 Reuse the **same** `train.json` / `images/` from the Stage-1 build (caption + QA, with the held-out
 `test.json`). Point `stage1_checkpoint` at a trained Stage-1 connector (your own
@@ -584,7 +584,7 @@ prototype.
 ## Next Steps
 
 This implementation covers **Stage 1: Feature Alignment** and **Stage 2: Visual Instruction Tuning
-(LoRA)** (see [Stage 2: Visual Instruction Tuning (LoRA)](#stage-2-visual-instruction-tuning-lora)).
+(LoRA)** (see [Stage 2: Visual Instruction Tuning (LoRA)](#astraq-vl-stage-2-visual-instruction-tuning-lora)).
 Further extensions might include:
 
 1. **Full Model Tuning** — Unfreeze all LLM layers (instead of LoRA) for more capacity at higher VRAM cost

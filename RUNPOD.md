@@ -18,7 +18,7 @@ git init
 git add .
 git commit -m "astronomy VLM"
 git branch -M main
-git remote add origin https://github.com/<you>/astronomy-vlm.git
+git remote add origin https://github.com/<you>/astraq-vl.git
 git push -u origin main
 ```
 
@@ -39,8 +39,8 @@ everything lands on the persistent volume:
 
 ```bash
 cd /workspace
-git clone https://github.com/<you>/astronomy-vlm.git
-cd astronomy-vlm
+git clone https://github.com/<you>/astraq-vl.git
+cd astraq-vl
 
 # Smoke-test the whole pipeline on 50 samples first (fast, catches setup issues):
 bash scripts/runpod_setup.sh 50

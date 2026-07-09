@@ -1,5 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1120" height="580" viewBox="0 0 1120 580" role="img" aria-labelledby="title desc">
-  <title id="title">AstroLLaVA Stage 2 training flow</title>
+  <title id="title">AstraQ-VL Stage 2 training flow</title>
   <desc id="desc">Stage 2 warm-starts the Stage 1 connector, trains connector plus LoRA adapters on the same train split, evaluates on the held-out split, and packages checkpoint 2526.</desc>
   <defs>
     <marker id="arrow" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="9" markerHeight="9" orient="auto-start-reverse">
@@ -23,7 +23,7 @@
   </defs>
 
   <rect class="bg" width="1120" height="580" rx="24"/>
-  <text class="title" x="40" y="48">AstroLLaVA Stage 2 Training Flow</text>
+  <text class="title" x="40" y="48">AstraQ-VL Stage 2 Training Flow</text>
   <text class="subtitle" x="40" y="75">Warm-start the Stage 1 connector, train LoRA adapters with the connector, and validate on the same held-out split.</text>
 
   <rect class="data" x="60" y="145" width="180" height="110" rx="14"/>

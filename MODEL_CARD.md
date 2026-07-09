@@ -9,6 +9,7 @@ language:
   - en
 pipeline_tag: image-text-to-text
 tags:
+  - astraq-vl
   - vision-language-model
   - llava
   - astronomy
@@ -17,7 +18,7 @@ tags:
   - connector
 ---
 
-# AstroLLaVA Stage-1 (connector alignment)
+# AstraQ-VL Stage-1 (connector alignment)
 
 A LLaVA-style vision–language connector that lets **Qwen2.5-1.5B-Instruct** describe astronomy
 images encoded by **CLIP ViT-L/14**. Only the connector (~3.9M params) is trained; both backbones
@@ -27,7 +28,7 @@ with a **disjoint held-out test split** so it can be evaluated on unseen images.
 
 > ⚠️ This repo ships the **connector checkpoint only** (`connector.safetensors`, ~16 MB). It is
 > **not** a standalone `transformers` model — it needs the custom VLM code from the
-> [astronomy-vlm](https://github.com/crimsonKn1ght/astronomy-vlm) repo plus the two base models
+> [astraq-vl](https://github.com/crimsonKn1ght/astraq-vl) repo plus the two base models
 > (auto-downloaded from the Hub) to run.
 
 ## Downloads (per-epoch bundles)
@@ -79,7 +80,7 @@ epoch-1/epoch-2 points for comparison.
 
 ```bash
 # 1. get the code
-git clone https://github.com/crimsonKn1ght/astronomy-vlm && cd astronomy-vlm
+git clone https://github.com/crimsonKn1ght/astraq-vl && cd astraq-vl
 pip install -r requirements.txt
 
 # 2. download + unzip the recommended bundle
