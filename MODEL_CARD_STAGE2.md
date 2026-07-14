@@ -167,6 +167,24 @@ train:  python train.py --config configs/finetune_astraq_vl_stage2.yaml
 eval:   python scripts/batch_inference.py --config configs/finetune_astraq_vl_stage2.yaml --records-json datasets/astrollava_llava/test.json --num-samples 0 ...
 ```
 
+## Citation
+
+If you use AstraQ-VL, this checkpoint, or its evaluation artifacts, please cite:
+
+> Roy, G. (2026). *AstraQ-VL: Parameter-Efficient Astronomy Vision-Language Modeling with Connector Alignment and LoRA Tuning* (Version v1). Zenodo. [https://doi.org/10.5281/zenodo.21284851](https://doi.org/10.5281/zenodo.21284851)
+
+```bibtex
+@misc{roy2026astraqvl,
+  author    = {Roy, Gourab},
+  title     = {AstraQ-VL: Parameter-Efficient Astronomy Vision-Language Modeling with Connector Alignment and LoRA Tuning},
+  year      = {2026},
+  publisher = {Zenodo},
+  version   = {v1},
+  doi       = {10.5281/zenodo.21284851},
+  url       = {https://doi.org/10.5281/zenodo.21284851}
+}
+```
+
 ## License & attribution
 
 - **Weights:** `cc-by-sa-4.0`, inherited from the training data.
