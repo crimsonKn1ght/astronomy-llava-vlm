@@ -17,9 +17,19 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-def load_vlm(config_path: str, connector_checkpoint: str, device: str = "cuda") -> VLMForCausalLM:
-    with open(config_path, "r") as f:
-        config = yaml.safe_load(f)
+def load_vlm(
+    config_path: str | None,
+    connector_checkpoint: str,
+    device: str = "cuda",
+    *,
+    config: dict | None = None,
+    strict_lora: bool = False,
+) -> VLMForCausalLM:
+    if config is None:
+        if not config_path:
+            raise ValueError("config_path or config mapping is required")
+        with open(config_path, "r") as f:
+            config = yaml.safe_load(f)
 
     model = VLMForCausalLM(config)
     load_connector_checkpoint(model.connector, connector_checkpoint)
@@ -28,8 +38,16 @@ def load_vlm(config_path: str, connector_checkpoint: str, device: str = "cuda") 
     # built the adapter structure on the LLM; here we load the trained weights into it. Stage-1
     # checkpoints have no lora/ subdir, so this is a no-op for them.
     if getattr(model.language_model, "is_lora", False):
-        if load_lora_adapter(model.language_model.model, connector_checkpoint):
+        if load_lora_adapter(
+            model.language_model.model,
+            connector_checkpoint,
+            strict=strict_lora,
+        ):
             logger.info(f"Loaded LoRA adapter from {connector_checkpoint}/lora")
+        elif strict_lora:
+            raise FileNotFoundError(
+                f"Stage-2 paper evaluation requires {connector_checkpoint}/lora/adapter_model.safetensors"
+            )
         else:
             logger.warning(
                 f"Config has a `lora` block but no lora/ adapter found in {connector_checkpoint}; "

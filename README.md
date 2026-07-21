@@ -423,10 +423,61 @@ python scripts/run_full_heldout_eval.py \
   --package
 ```
 
-The preprint-facing benchmark scores all 3,271 held-out caption + QA records with one shared
-pipeline: ROUGE-L, token-F1, exact match, specificity hallucination, unsupported specifics, SBERT,
-NLI consistency, and contradiction rate. See `docs/full_heldout_eval.md`,
-`docs/qwen_vl_full_heldout_baseline.md`, and `docs/astrollava_reference_full_heldout_baseline.md`.
+The commands above and the result table below document the original held-out workflow. They are
+retained for provenance, but they are not the definitive paper protocol. In particular, the old
+AstroLLaVA in-domain output had invalid slicing/empty rows and an unavoidable training-lineage
+overlap. The legacy runner also now refuses to train a missing checkpoint. Use the versioned paper
+evaluation suite below for all new results.
+
+## Paper evaluation v2 (definitive workflow)
+
+The paper suite runs a controlled Stage 1 versus Stage 2 comparison on the frozen internal set,
+then compares Stage 1, Stage 2, AstroLLaVA, and Qwen3-VL-4B zero-shot on DeepSDO and, after access
+approval, AstroVLBench. It verifies exact revisions and checkpoint hashes, retains append-only
+generation evidence, calculates paired confidence intervals, and generates paper-ready tables,
+figures, narrative text, checksums, and private/public bundles.
+
+On a RunPod pod with one nominal 24 GB Ampere, Ada, or Hopper GPU (at least 22,000 MiB reported
+VRAM and compute capability 8.x/9.x), 32 GiB RAM, and 80 GiB persistent storage:
+
+```bash
+bash scripts/runpod/run_paper_eval.sh \
+  --suites internal,deepsdo \
+  --models all \
+  --resume
+```
+
+This command never trains a missing model: it stops if a pinned checkpoint cannot be downloaded or
+verified. RAG is also explicitly disabled. Stage 1 and Stage 2 were trained without retrieval, and
+the evaluation protocol records `retrieval: false`, `few_shot: false`, and `quantization: false`.
+The separate RAG layer later in this README is not used by this study.
+
+Caption scoring uses the pinned `pycocoevalcap==1.2` COCO-caption implementation after PTB
+tokenization for BLEU, CIDEr, METEOR, and ROUGE-L; QA ROUGE-L uses the same pinned COCO/PTB path.
+METEOR requires Java, which the RunPod wrapper installs when the pod permits it and otherwise
+reports as a hard scoring failure. Generation outputs are nested by suite-generation and effective
+model fingerprints (the latter also binds the canonical-records file and generation code), while
+analysis-only metric or plotting changes create a new analysis-run fingerprint without repeating GPU
+inference.
+
+Final acceptance requires exactly 3,271 internal rows for each AstraQ-VL stage (591 images: 586
+caption and 2,685 QA records) and exactly 102 DeepSDO rows for each of the four models, with no
+missing, duplicate, technical-error, empty, or decode-leaking canonical response. AstroVLBench's
+expected count is frozen from its gated snapshot when access is approved.
+
+See [Paper evaluation v2](docs/paper_evaluation_v2.md) for the one-command and staged RunPod
+workflows, recovery/resume procedure, metrics, data caveats, output layout, and AstroVLBench lock
+step. See [DeepSDO external caption benchmark](docs/deepsdo_external_eval.md) for the public source,
+credit, descriptive topic/channel strata, and redistribution cautions.
+
+Packaging creates a private audit archive with full prediction/reference evidence, manifests,
+dataset audits, and reproduction commands, plus a public archive that excludes staged dataset and
+gated source evidence and redacts references, source identifiers, paths, and sensitive hashes. It
+does not package model weights, raw dataset archives, or extracted images.
+
+> **Historical results below.** These scores predate the corrected decode contract and frozen paper
+> protocol. Do not copy them into the paper or use them for model-ranking claims; regenerate the
+> definitive internal results with paper evaluation v2.
 
 Overall held-out comparison:
 
@@ -437,7 +488,7 @@ Overall held-out comparison:
 | Qwen2.5-VL-7B | 3271 | 0.1610 | 0.2156 | 0.0003 | 0.2727 | 0.5812 | 0.4946 | 0.1489 | 0.6224 | **0.0281** | **0.1764** |
 | AstroLLaVA reference | 3240 | 0.1759 | 0.1993 | 0.0000 | **0.1722** | 0.2423 | **0.2207** | 0.0892 | 0.4656 | 0.0101 | 0.5836 |
 
-The current result story is deliberately nuanced: Stage-2 improves in-domain held-out reference
+The historical result story is deliberately nuanced: Stage-2 improves in-domain held-out reference
 alignment and reduces unsupported specifics compared with Stage-1, while Qwen2.5-VL is much less
 contradictory under the NLI proxy. The unsupported-specific gain is not just a "says less" result:
 Stage-2 emits slightly fewer detected specifics than Stage-1 (0.4405 vs 0.4632 per record), but its
@@ -449,9 +500,9 @@ The release ZIPs used for the table are committed under `eval_runs/full_heldout/
 `eval_runs/full_heldout/SHA256SUMS.txt`. Each ZIP contains the held-out `test.json`, predictions,
 aggregate metrics, per-sample metrics, and reproduction notes for that model family.
 
-For preprint-strength analysis, run the offline workflow in
-`docs/preprint_offline_analysis.md`: paired bootstrap confidence intervals, AstroLLaVA skipped-row
-inspection, honestly mined qualitative examples, and a 100-200 item human/LLM judge sample.
+`docs/preprint_offline_analysis.md` is retained only for the historical artifacts above. It does
+not replace paper evaluation v2, which supplies the definitive paired intervals and omits the old
+AstroLLaVA internal comparison and unfunded expert/judge review.
 
 ## Medical RAG Layer (Retrieval-Augmented Grounding)
 

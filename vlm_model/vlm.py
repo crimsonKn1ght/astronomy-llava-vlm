@@ -20,6 +20,7 @@ class VLMForCausalLM(nn.Module):
 
         self.vision_encoder = VisionEncoder(
             model_name=ve_cfg.get("model_name", "openai/clip-vit-large-patch14"),
+            revision=ve_cfg.get("revision"),
             select_layer=ve_cfg.get("select_layer", -2),
             select_feature=ve_cfg.get("select_feature", "patch"),
         )
@@ -29,6 +30,7 @@ class VLMForCausalLM(nn.Module):
 
         self.language_model = LanguageModel(
             model_name=lm_cfg.get("model_name", "Qwen/Qwen2.5-1.5B-Instruct"),
+            revision=lm_cfg.get("revision"),
             torch_dtype=torch_dtype,
             lora=lm_cfg.get("lora"),
         )

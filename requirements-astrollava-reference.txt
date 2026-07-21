@@ -5,4 +5,4 @@
 # torch/transformers/flash-attn; use a fresh environment if it conflicts with
 # the Qwen baseline environment.
 
-git+https://github.com/UniverseTBD/AstroLLaVA.git
+git+https://github.com/UniverseTBD/AstroLLaVA.git@697cfbf11fbe16ce326dbbdab06bd9d93ccba3e9

@@ -1,7 +1,8 @@
-# Full held-out evaluation
+# Legacy full held-out evaluation
 
-This workflow scores every held-out AstroLLaVA record, not only one caption per image.
-For the released split that means 3,271 caption+QA records over 591 unseen images.
+This legacy workflow scores every held-out AstroLLaVA record, not only one caption per image. For the released split that means 3,271 caption+QA records over 591 unseen images. It is retained for release provenance; use [Paper evaluation v2](paper_evaluation_v2.md) to produce definitive paper results under the corrected decode, split-audit, fingerprint, and confidence-interval protocol.
+
+Neither this legacy evaluator nor paper evaluation v2 trains a missing checkpoint. Both stop and identify the frozen checkpoint that must be supplied. Retrieval/RAG is not used by either evaluation workflow.
 
 ## Branches
 
@@ -13,8 +14,8 @@ These are evaluation-release branches. They do not define new model weights.
 ## Dry run
 
 ```bash
-python scripts/run_full_heldout_eval.py --stage stage1 --dry-run --no-train-if-missing
-python scripts/run_full_heldout_eval.py --stage stage2 --dry-run --no-train-if-missing
+python scripts/run_full_heldout_eval.py --stage stage1 --dry-run
+python scripts/run_full_heldout_eval.py --stage stage2 --dry-run
 ```
 
 To validate record extraction without loading a model:
@@ -45,9 +46,7 @@ python scripts/run_full_heldout_eval.py \
   --package
 ```
 
-If a checkpoint is missing, the script trains with `configs/pretrain_astraq_vl.yaml`
-and then re-checks the expected checkpoint names. Use `--no-train-if-missing` for an
-eval-only run that fails fast instead.
+If a checkpoint is missing, the script fails with the exact expected path. Download or place the frozen checkpoint there and rerun with `--resume`. The deprecated `--no-train-if-missing` flag remains accepted only for compatibility and does not change behavior.
 
 ## Full Stage-2 run
 
@@ -62,8 +61,7 @@ python scripts/run_full_heldout_eval.py \
   --package
 ```
 
-If the Stage-2 checkpoint is missing, the script trains with
-`configs/finetune_astraq_vl_stage2.yaml` and then re-checks `checkpoint-2526`.
+If the Stage-2 checkpoint is missing, the script fails with the exact expected path; it never invokes `train.py` or the Stage 2 training configuration.
 
 ## Outputs
 
@@ -76,13 +74,11 @@ Outputs are written under `eval_runs/full_heldout/`:
 - `comparison/full_heldout_comparison.{json,csv,md}`
 - `astraq-vl-stage1-full-heldout-eval-v1.zip` or `astraq-vl-stage2-full-heldout-eval-v1.zip`
 
-The metrics are produced by `scripts/score_predictions.py`: ROUGE-L, token-F1,
-exact match, specificity hallucination, NLI consistency, contradiction rate, and
-SBERT cosine. Summaries include `overall`, `splits.caption`, and `splits.qa`.
+The legacy metrics are produced by `scripts/score_predictions.py`: ROUGE-L, token-F1, exact match, specificity, NLI consistency, contradiction rate, and SBERT cosine. Specificity, NLI, and contradiction values are proxies rather than proof of hallucination. Summaries include `overall`, `splits.caption`, and `splits.qa`; they are not the pinned COCO/PTB metric and clustered-bootstrap outputs produced by paper evaluation v2.
 
-## Release artifacts
+## Historical release artifacts
 
-The preprint-facing release ZIPs are:
+The previously published release ZIPs are:
 
 | Artifact | SHA256 |
 | --- | --- |
@@ -94,7 +90,9 @@ The preprint-facing release ZIPs are:
 Each ZIP contains the held-out split, predictions, aggregate metrics,
 per-sample metrics, comparison rows when applicable, and a reproduction note.
 
-## Overall comparison
+## Historical overall comparison
+
+These values predate paper evaluation v2. In particular, the listed AstroLLaVA run has 31 missing rows from the old output-slicing path and training-lineage overlap with the internal dataset. Do not use this table as definitive paper evidence or an objective model ranking; regenerate Stage 1 and Stage 2 with the versioned paper suite.
 
 | Model | n | ROUGE-L up | Token-F1 up | Exact match up | Specificity halluc. down | Pred. specifics / rec. | Unsupported / rec. down | Spec. precision up | SBERT up | NLI up | Contradiction down |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
@@ -113,7 +111,7 @@ Interpretation:
 - AstroLLaVA reference is a domain comparator with possible data-lineage overlap and 31 missing
   predictions in this scoring run.
 
-## Paired bootstrap highlights
+## Historical paired-bootstrap highlights
 
 The paired bootstrap script compares common held-out records. For Stage-2 vs Stage-1 epoch 3 on the
 overall split, the 95% intervals exclude zero for ROUGE-L, token-F1, exact match, unsupported

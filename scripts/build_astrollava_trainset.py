@@ -118,6 +118,11 @@ def parse_args() -> argparse.Namespace:
         description="Export AstroLLaVA_convos as a LLaVA-format VLM training set."
     )
     parser.add_argument("--hf-id", default="UniverseTBD/AstroLLaVA_convos", help="HF dataset id.")
+    parser.add_argument(
+        "--revision",
+        default=None,
+        help="Immutable Hugging Face dataset revision. Paper evaluation requires a 40-char commit.",
+    )
     parser.add_argument("--split", default="train", help="Split to export.")
     parser.add_argument(
         "--output-dir",
@@ -178,7 +183,12 @@ def main() -> None:
         f"Streaming {args.hf_id} split={args.split} "
         f"(cap={args.max_samples}, test_fraction={args.test_fraction})"
     )
-    ds = load_dataset(args.hf_id, split=args.split, streaming=not args.no_streaming)
+    ds = load_dataset(
+        args.hf_id,
+        split=args.split,
+        streaming=not args.no_streaming,
+        revision=args.revision,
+    )
     # Decode images ourselves (decode=False) so a corrupt/oversized image is caught by the
     # per-row try/except below instead of crashing the whole dataset iterator mid-stream.
     ds = ds.cast_column("image", HFImage(decode=False))

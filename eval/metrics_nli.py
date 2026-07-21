@@ -20,7 +20,12 @@ logger = logging.getLogger(__name__)
 
 
 class NLIScorer:
-    def __init__(self, model_name: str = "roberta-large-mnli", device: str = "cpu"):
+    def __init__(
+        self,
+        model_name: str = "roberta-large-mnli",
+        device: str = "cpu",
+        revision: str | None = None,
+    ):
         from transformers import pipeline
 
         # device index: -1 = CPU, 0 = first CUDA device
@@ -28,6 +33,7 @@ class NLIScorer:
         self.pipe = pipeline(
             "text-classification",
             model=model_name,
+            revision=revision,
             top_k=None,  # return scores for all labels
             device=device_idx,
         )

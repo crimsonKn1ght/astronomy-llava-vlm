@@ -120,17 +120,10 @@ def ensure_checkpoints(
     for target in missing:
         print(f"  - {target.label}: {target.checkpoint}")
 
-    if args.no_train_if_missing:
-        raise SystemExit("Missing checkpoints and --no-train-if-missing was set.")
-
-    run([args.python, "train.py", "--config", config], args.dry_run)
-    if args.dry_run:
-        return
-
-    still_missing = [t for t in targets if not checkpoint_present(t.checkpoint, stage)]
-    if still_missing:
-        names = ", ".join(f"{t.label} ({t.checkpoint})" for t in still_missing)
-        raise SystemExit(f"Training finished, but expected checkpoints are still missing: {names}")
+    raise SystemExit(
+        "Evaluation never trains missing checkpoints. Download or supply the listed frozen "
+        "checkpoints, then rerun the same command with --resume."
+    )
 
 
 def generate_and_score(target: EvalTarget, config: str, args: argparse.Namespace) -> Path:
@@ -284,7 +277,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--sbert-model", default="sentence-transformers/all-mpnet-base-v2")
     parser.add_argument("--resume", action="store_true")
     parser.add_argument("--overwrite", action="store_true")
-    parser.add_argument("--no-train-if-missing", action="store_true")
+    parser.add_argument(
+        "--no-train-if-missing",
+        action="store_true",
+        help="Deprecated compatibility flag; evaluation now always refuses to train.",
+    )
     parser.add_argument("--skip-generate", action="store_true")
     parser.add_argument("--skip-score", action="store_true")
     parser.add_argument("--skip-compare", action="store_true")

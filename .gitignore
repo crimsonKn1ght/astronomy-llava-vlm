@@ -22,5 +22,9 @@ eval_runs/
 REPRODUCE.md
 release/
 
-# Local-only paper draft for Overleaf/manual submission.
-paper/
+# Local-only paper draft for Overleaf/manual submission. Keep eval/paper source tracked.
+/paper/
+
+# Local RunPod evaluation environments and generated protocol locks.
+/.paper_eval_venvs/
+/.paper_eval_runtime/

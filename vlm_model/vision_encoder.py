@@ -10,6 +10,7 @@ class VisionEncoder(nn.Module):
     def __init__(
         self,
         model_name: str = "openai/clip-vit-large-patch14",
+        revision: str | None = None,
         select_layer: int = -2,
         select_feature: str = "patch",
     ):
@@ -17,8 +18,8 @@ class VisionEncoder(nn.Module):
         self.select_layer = select_layer
         self.select_feature = select_feature
 
-        self.model = CLIPVisionModel.from_pretrained(model_name)
-        self.image_processor = CLIPImageProcessor.from_pretrained(model_name)
+        self.model = CLIPVisionModel.from_pretrained(model_name, revision=revision)
+        self.image_processor = CLIPImageProcessor.from_pretrained(model_name, revision=revision)
         freeze_module(self.model)
 
     @property

@@ -1,0 +1,17 @@
+# Legacy environment required by pinned AstroLLaVA source revision 697cfbf1.
+# PyTorch/torchvision CUDA wheels are installed separately by the RunPod wrapper.
+transformers==4.37.2
+tokenizers==0.15.1
+accelerate==0.21.0
+peft==0.5.0
+huggingface-hub==0.20.3
+safetensors==0.4.5
+sentencepiece==0.1.99
+einops==0.6.1
+einops-exts==0.0.4
+timm==0.6.13
+shortuuid==1.0.13
+numpy==1.26.4
+Pillow==10.4.0
+PyYAML==6.0.3
+psutil==7.1.3

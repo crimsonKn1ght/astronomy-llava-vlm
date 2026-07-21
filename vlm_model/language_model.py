@@ -19,16 +19,19 @@ class LanguageModel(nn.Module):
     def __init__(
         self,
         model_name: str = "Qwen/Qwen2.5-1.5B-Instruct",
+        revision: str | None = None,
         torch_dtype: torch.dtype = torch.bfloat16,
         lora: Optional[dict] = None,
     ):
         super().__init__()
         self.model = AutoModelForCausalLM.from_pretrained(
             model_name,
+            revision=revision,
             torch_dtype=torch_dtype,
         )
         self.tokenizer = AutoTokenizer.from_pretrained(
             model_name,
+            revision=revision,
             use_fast=True,
         )
 
