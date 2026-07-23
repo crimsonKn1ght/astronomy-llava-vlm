@@ -28,6 +28,35 @@ class PaperProtocolTests(unittest.TestCase):
             self.protocol.model_fingerprint("deepsdo", "qwen3_vl_4b"),
         )
 
+    def test_dedicated_astrovlbench_protocol_pins_isolated_release_contract(self) -> None:
+        astro = PaperProtocol.load(ROOT / "configs" / "paper_eval_astrovlbench_v1.yaml")
+        dataset = astro.data["datasets"]["astrovlbench"]
+        self.assertEqual(
+            dataset["locked_revision"],
+            "d1708958d4d1dda45c078eb2f4d6db3e6fa96286",
+        )
+        self.assertEqual(dataset["expected_records"], 3905)
+        self.assertEqual(sum(dataset["expected_component_records"].values()), 3905)
+        self.assertEqual(
+            astro.data["runtime"]["output_root"],
+            "eval_runs/paper_eval_astrovlbench_v1",
+        )
+        self.assertEqual(astro.data["generation"]["astrovlbench"]["max_new_tokens"], 256)
+        self.assertTrue(
+            astro.data["generation"]["astrovlbench"]["require_natural_termination"]
+        )
+
+    def test_completed_deepsdo_v4_suite_fingerprints_are_unchanged(self) -> None:
+        v4 = PaperProtocol.load(ROOT / "configs" / "paper_eval_v4.yaml")
+        self.assertEqual(
+            v4.suite_fingerprint("deepsdo", "original_1024")[:16],
+            "f7ccb1b883880d96",
+        )
+        self.assertEqual(
+            v4.suite_fingerprint("deepsdo", "concise_256")[:16],
+            "e5390c5615f0fca1",
+        )
+
     def test_effective_generation_fingerprint_binds_exact_records(self) -> None:
         first = self.protocol.effective_model_fingerprint(
             "deepsdo", "astraq_stage2", "1" * 64, ROOT

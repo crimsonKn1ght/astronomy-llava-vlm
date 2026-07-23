@@ -67,6 +67,8 @@ RAW_DATA_FIELDS = {
     "conversations",
     "dataset_row",
     "dataset_rows",
+    "file_name",
+    "filename",
     "gated_source",
     "gated_source_data",
     "image",
@@ -105,6 +107,8 @@ _GATED_SENSITIVE_FIELDS = {
     "group",
     "row_index",
     "row_number",
+    "source_line",
+    "source_split",
 }
 
 # These output fields are produced by the evaluated model rather than supplied by

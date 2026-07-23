@@ -176,6 +176,29 @@ def validate_protocol(data: Mapping[str, Any]) -> None:
         64,
     )
     _require_sha(datasets["deepsdo"].get("archive_sha256"), "datasets.deepsdo.archive_sha256", 64)
+    astro = datasets["astrovlbench"]
+    if "locked_revision" in astro:
+        _require_sha(astro.get("locked_revision"), "datasets.astrovlbench.locked_revision")
+        _require_sha(
+            astro.get("expected_snapshot_inventory_sha256"),
+            "datasets.astrovlbench.expected_snapshot_inventory_sha256",
+            64,
+        )
+        if int(astro.get("expected_snapshot_files") or 0) <= 0:
+            raise ProtocolError("datasets.astrovlbench.expected_snapshot_files must be positive")
+        if int(astro.get("expected_snapshot_bytes") or 0) <= 0:
+            raise ProtocolError("datasets.astrovlbench.expected_snapshot_bytes must be positive")
+        components = astro.get("expected_component_records")
+        if not isinstance(components, Mapping) or not components:
+            raise ProtocolError(
+                "datasets.astrovlbench.expected_component_records must be a non-empty mapping"
+            )
+        if sum(int(value) for value in components.values()) != int(
+            astro.get("expected_records") or 0
+        ):
+            raise ProtocolError(
+                "datasets.astrovlbench component counts must sum to expected_records"
+            )
     if schema_version >= 3:
         conditions = (generation.get("deepsdo") or {}).get("conditions")
         expected_conditions = DEEPSDO_CONDITIONS_BY_SCHEMA[schema_version]

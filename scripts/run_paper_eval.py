@@ -424,15 +424,25 @@ def lock_astrovlbench(protocol: PaperProtocol, args: argparse.Namespace) -> Path
     if args.dry_run:
         print(f"PLAN lock gated AstroVLBench snapshot -> {root}")
         return root / "astrovlbench.lock.json"
+    dataset = protocol.data["datasets"]["astrovlbench"]
+    revision = str(dataset.get("locked_revision") or "main")
+    if args.astrovlbench_snapshot:
+        return astrovlbench.lock_local_snapshot(
+            Path(args.astrovlbench_snapshot),
+            root,
+            repo_id=dataset["source_repo"],
+            revision=revision,
+        )
     token = os.environ.get("HF_TOKEN")
     if not token:
         raise SystemExit("HF_TOKEN is required to lock the gated AstroVLBench snapshot")
-    # The adapter owns revision discovery and content/prompt hashes.  No inference occurs before lock.
+    # The adapter owns the content/prompt hashes.  No inference occurs before lock.
     return astrovlbench.lock_huggingface_snapshot(
-        repo_id=protocol.data["datasets"]["astrovlbench"]["source_repo"],
+        repo_id=dataset["source_repo"],
         output_dir=root,
         token=token,
         cache_dir=Path(args.hf_cache),
+        revision=revision,
     )
 
 
@@ -449,9 +459,13 @@ def prepare_astrovlbench(protocol: PaperProtocol, args: argparse.Namespace) -> P
         raise SystemExit(
             "AstroVLBench is not locked. Run with --lock-astrovlbench after access is approved."
         )
-    records, report = astrovlbench.materialize_locked_records(lock_path)
-    write_records(records_path, records)
-    write_json_atomic(root / "adapter_report.json", report)
+    astrovlbench.validate_protocol_release_contract(
+        lock_path,
+        protocol.data["datasets"]["astrovlbench"],
+    )
+    astrovlbench.materialize_locked_records(lock_path)
+    if not records_path.is_file() or not (root / "adapter_report.json").is_file():
+        raise SystemExit("AstroVLBench preparation did not emit canonical records and report")
     return records_path
 
 
@@ -627,7 +641,12 @@ def stage_audit_inputs(protocol: PaperProtocol, args: argparse.Namespace) -> Pat
         "requirements-astrollava-reference.txt",
     ):
         copy(ROOT / name, f"protocol/{name}")
-    documentation = ROOT / "docs" / f"paper_evaluation_v{protocol.data['schema_version']}.md"
+    documentation = ROOT / str(
+        protocol.data.get("reporting", {}).get(
+            "documentation",
+            f"docs/paper_evaluation_v{protocol.data['schema_version']}.md",
+        )
+    )
     copy(documentation, f"protocol/{documentation.name}")
     copy(Path(args.asset_root) / "asset_manifest.json", "assets/asset_manifest.json")
     copy(output_root / "preflight.json", "environment/preflight.json")
@@ -659,6 +678,13 @@ def stage_audit_inputs(protocol: PaperProtocol, args: argparse.Namespace) -> Pat
     astro = data_root / "astrovlbench"
     for name in ("astrovlbench.lock.json", "adapter_report.json", "records.jsonl"):
         copy(astro / name, f"datasets/astrovlbench/{name}")
+    for name in ("repair_report.json",):
+        copy(astro / "overlay" / name, f"datasets/astrovlbench/overlay/{name}")
+    exclusions = astro / "overlay/data/Task2_RadioMorph/MiraBest_F/exclusions.jsonl"
+    copy(
+        exclusions,
+        "datasets/astrovlbench/overlay/data/Task2_RadioMorph/MiraBest_F/exclusions.jsonl",
+    )
 
     selected_suites = args.suites
     selected_models = args.models
@@ -892,6 +918,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--max-attempts", type=int, default=2)
     parser.add_argument("--diagnostic-allow-partial", action="store_true")
     parser.add_argument("--lock-astrovlbench", action="store_true")
+    parser.add_argument(
+        "--astrovlbench-snapshot",
+        help="Adopt an existing pinned `hf download` directory without modifying it.",
+    )
     parser.add_argument("--dry-run", action="store_true")
     return parser.parse_args()
 
@@ -904,7 +934,12 @@ def main() -> None:
     args.asset_root = args.asset_root or protocol.data["runtime"]["asset_root"]
     suites = parse_csv_selection(args.suites, SUPPORTED_SUITES)
     condition_map = selected_conditions(protocol, suites, args.conditions)
-    if args.lock_astrovlbench:
+    if args.lock_astrovlbench and args.astrovlbench_snapshot:
+        raise SystemExit(
+            "Use either --lock-astrovlbench for automatic download or "
+            "--astrovlbench-snapshot for a pre-downloaded snapshot, not both"
+        )
+    if args.lock_astrovlbench or args.astrovlbench_snapshot:
         lock = lock_astrovlbench(protocol, args)
         print(f"AstroVLBench lock: {lock}")
         if args.command == "all" and args.suites == "internal,deepsdo":

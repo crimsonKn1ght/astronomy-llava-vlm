@@ -257,10 +257,14 @@ class PaperArtifactTests(unittest.TestCase):
                 "image_id": "data/Task5/secret.fits",
                 "reference_sha256": "a" * 64,
                 "record_fingerprint": "b" * 64,
+                "filename": "images/FRII/secret-source.png",
+                "snapshot_path": "/gated/cache/snapshots/secret",
                 "metadata": {
                     "asib_group": "C4",
                     "cluster_id": "spectrum_secret-source",
                     "source_row": "17",
+                    "source_line": 17,
+                    "source_split": "test",
                     "survey": "FIRST",
                 },
                 "response": "model rationale",
@@ -274,7 +278,16 @@ class PaperArtifactTests(unittest.TestCase):
         self.assertEqual(redacted["response"], "model rationale")
         self.assertEqual(redacted["error_type"], "FileNotFoundError")
         self.assertEqual(redacted["metadata"], {"survey": "FIRST"})
-        for key in ("id", "sample_id", "image_id", "reference_sha256", "record_fingerprint", "error"):
+        for key in (
+            "id",
+            "sample_id",
+            "image_id",
+            "reference_sha256",
+            "record_fingerprint",
+            "filename",
+            "snapshot_path",
+            "error",
+        ):
             self.assertNotIn(key, redacted)
         self.assertNotIn("secret-source", json.dumps(redacted))
 

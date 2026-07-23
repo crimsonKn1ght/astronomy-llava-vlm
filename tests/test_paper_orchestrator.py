@@ -200,6 +200,35 @@ class PaperOrchestratorDryRunTests(unittest.TestCase):
             self.assertFalse(data_root.exists())
             self.assertFalse(output_root.exists())
 
+    def test_astrovlbench_dry_run_accepts_pre_downloaded_snapshot(self) -> None:
+        command = [
+            sys.executable,
+            str(ROOT / "scripts" / "run_paper_eval.py"),
+            "prepare",
+            "--protocol",
+            "configs/paper_eval_astrovlbench_v1.yaml",
+            "--dry-run",
+            "--skip-hardware-check",
+            "--allow-dirty",
+            "--suites",
+            "astrovlbench",
+            "--models",
+            "all",
+            "--astrovlbench-snapshot",
+            "/workspace/downloaded/AstroVLBench",
+        ]
+        completed = subprocess.run(
+            command,
+            cwd=ROOT,
+            text=True,
+            capture_output=True,
+            timeout=60,
+            check=False,
+        )
+        self.assertEqual(completed.returncode, 0, completed.stdout + completed.stderr)
+        self.assertIn("PLAN lock gated AstroVLBench snapshot", completed.stdout)
+        self.assertIn("materialize all five tasks", completed.stdout)
+
     def test_runpod_wrapper_contains_recovery_hardening(self) -> None:
         wrapper = (ROOT / "scripts" / "runpod" / "run_paper_eval.sh").read_text(
             encoding="utf-8"
@@ -208,6 +237,7 @@ class PaperOrchestratorDryRunTests(unittest.TestCase):
         self.assertIn("HF_HUB_ENABLE_HF_TRANSFER", wrapper)
         self.assertIn("index.lock", wrapper)
         self.assertIn("configs/paper_eval_v4.yaml", wrapper)
+        self.assertIn("--astrovlbench-snapshot", wrapper)
 
 
 if __name__ == "__main__":

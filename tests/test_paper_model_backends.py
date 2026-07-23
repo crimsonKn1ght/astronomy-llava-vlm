@@ -165,6 +165,30 @@ class PaperModelBackendContractTests(unittest.TestCase):
         self.assertEqual([row["id"] for row in selected], ["capped"])
         self.assertEqual(pending, [])
 
+    def test_astrovlbench_smoke_covers_all_eight_components_even_with_limit_five(self) -> None:
+        components = (
+            "task1",
+            "task2.first",
+            "task2.nvss",
+            "task3",
+            "task4",
+            "task5.q1",
+            "task5.q2",
+            "task5.q3",
+        )
+        records = [
+            {"id": f"{component}-first", "task_key": component}
+            for component in components
+        ]
+        records.extend(
+            {"id": f"{component}-second", "task_key": component}
+            for component in components
+        )
+        selected, pending = smoke_record_plan(records, "astrovlbench", 5, {})
+        self.assertEqual(len(selected), 8)
+        self.assertEqual({row["task_key"] for row in selected}, set(components))
+        self.assertEqual(selected, pending)
+
 
 if __name__ == "__main__":
     unittest.main()

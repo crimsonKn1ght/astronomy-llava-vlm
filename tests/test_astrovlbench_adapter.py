@@ -8,6 +8,8 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
+from PIL import Image
+
 from eval.paper.astrovlbench import (
     AstroVLBenchError,
     LockValidationError,
@@ -15,12 +17,15 @@ from eval.paper.astrovlbench import (
     discover_records,
     extract_official_guided_prompts,
     hierarchical_project_aggregate,
+    lock_local_snapshot,
     materialize_locked_records,
     parse_label,
     parse_label_response,
     read_lock_manifest,
     resolve_and_lock_snapshot,
+    sha256_file,
     validate_lock_manifest,
+    validate_protocol_release_contract,
     write_lock_manifest,
 )
 from eval.paper.records import validate_unique_records
@@ -36,21 +41,43 @@ def _write_csv(path: Path, fieldnames: list[str], rows: list[dict[str, object]])
 
 def _image(path: Path) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_bytes(b"fixture image: " + path.as_posix().encode("ascii"))
+    Image.new("RGB", (2, 2), color=(80, 120, 160)).save(path)
 
 
 def _build_snapshot(root: Path) -> None:
     prompt_sources = {
-        1: 'PROMPTS = {"guided": "Classify the optical source as AGN or Galaxy."}\n',
-        2: 'PROMPTS = {"guided": "Classify the radio morphology as FRI or FRII."}\n',
-        3: 'GUIDED_PROMPT = "Classify this SED plot as Type-1 AGN, Type-2 AGN, or Galaxy."\n',
-        4: 'PROMPTS = {"guided": "Classify the light-curve plot."}\n',
+        1: (
+            'SYSTEM_PROMPT_GUIDED = "Classify the optical source as AGN or Galaxy."\n'
+            'USER_TEXT = "Label this optical image."\n'
+        ),
+        2: (
+            'def build_prompt_guided(survey: str) -> str:\n'
+            '    return f"Classify the {survey} radio morphology as FRI or FRII."\n'
+            'USER_TEXT = "Label this radio image."\n'
+        ),
+        3: (
+            'SYSTEM_PROMPT_IMAGE = "Classify this SED plot. {REDSHIFT_BLOCK}"\n'
+            'def build_image_prompt(redshift_mode, redshift, redshift_err, prompt_type="guided"):\n'
+            '    if redshift_mode == "with":\n'
+            '        redshift_block = f"Redshift: {redshift}"\n'
+            '        redshift_instruction = "Use redshift."\n'
+            '    else:\n'
+            '        redshift_block = "Redshift: not provided."\n'
+            '        redshift_instruction = "Do not assume redshift; use the observed SED."\n'
+            '    return SYSTEM_PROMPT_IMAGE.format(REDSHIFT_BLOCK=redshift_block)\n'
+            'USER_TEXT = "Label this SED image."\n'
+        ),
+        4: (
+            'SYSTEM_PROMPT_IMAGE = "Classify the light-curve plot."\n'
+            'USER_TEXT_IMAGE = "Label this light curve."\n'
+        ),
         5: (
-            'PROMPTS = {\n'
-            '    "Q1": {"guided": "Are both H-alpha and H-beta present?"},\n'
-            '    "Q2": {"guided": "Is this a broad-line AGN?"},\n'
-            '    "Q3": {"guided": "Give the BPT class."},\n'
-            '}\n'
+            'SYSTEM_PROMPT_Q1 = "Are both H-alpha and H-beta present?"\n'
+            'SYSTEM_PROMPT_Q2 = "Is this a broad-line AGN?"\n'
+            'SYSTEM_PROMPT_Q3 = "Give the BPT class."\n'
+            'USER_TEXT_Q1 = "Answer Q1."\n'
+            'USER_TEXT_Q2 = "Answer Q2."\n'
+            'USER_TEXT_Q3 = "Answer Q3."\n'
         ),
     }
     for task, source in prompt_sources.items():
@@ -74,7 +101,11 @@ def _build_snapshot(root: Path) -> None:
     _image(first / "images" / "FRI" / "first-source-001.png")
     (first / "metadata.jsonl").write_text(
         json.dumps(
-            {"filename": "first-source-001.png", "label": "FR I", "source_id": "source-001"}
+            {
+                "filename": "images/FRI/first-source-001.png",
+                "label": "FR I",
+                "source_id": "source-001",
+            }
         )
         + "\n",
         encoding="utf-8",
@@ -108,20 +139,20 @@ def _build_snapshot(root: Path) -> None:
     task3 = root / "data" / "Task3_SED"
     sed_rows = []
     for index, label in enumerate(("Type-1 AGN", "Type-2 AGN", "Galaxy"), 1):
-        name = f"sed-{index}.png"
+        prefix = {"Type-1 AGN": "Type1AGN", "Type-2 AGN": "Type2AGN", "Galaxy": "Galaxy"}[label]
+        name = f"{prefix}_{index}.png"
         _image(task3 / "images" / name)
         sed_rows.append(
             {
-                "image": name,
-                "source_type": label,
-                "source_id": f"sed-{index}",
+                "targetid": str(index),
+                "class": label,
                 "redshift": 0.1 * index,
                 "g_mag": 20 + index,
             }
         )
     _write_csv(
         task3 / "nirsed_v2_catalog.csv",
-        ["image", "source_type", "source_id", "redshift", "g_mag"],
+        ["targetid", "class", "redshift", "g_mag"],
         sed_rows,
     )
 
@@ -129,19 +160,21 @@ def _build_snapshot(root: Path) -> None:
     task4_rows = []
     for name, label in (("lc-agn.png", "AGN"), ("lc-tde.png", "TDE")):
         _image(task4 / "figures" / label / name)
-        task4_rows.append({"figure": name, "class": label, "object_id": name[:-4]})
-    _write_csv(task4 / "manifest.csv", ["figure", "class", "object_id"], task4_rows)
+        task4_rows.append(
+            {"fig_path": f"figures/{label}/{name}", "class": label, "object_id": name[:-4]}
+        )
+    _write_csv(task4 / "manifest.csv", ["fig_path", "class", "object_id"], task4_rows)
 
     task5 = root / "data" / "Task5_SpecType"
     task5_rows = []
     for group in ("A", "B", "C1", "C2", "C3", "C4", "D"):
         source_id = f"spec-{group.casefold()}"
-        filename = f"{source_id}.png"
-        _image(task5 / "figures" / f"Group_{group}" / filename)
-        task5_rows.append({"source_id": source_id, "group": f"Group_{group}", "image": filename})
+        filename = f"spectrum_{source_id}.png"
+        _image(task5 / "figures" / f"Group_{group}_Fixture" / filename)
+        task5_rows.append({"TARGETID": source_id, "SUB_GROUP": group})
     _write_csv(
         task5 / "ASIB_v1_selection_with_snr.csv",
-        ["source_id", "group", "image"],
+        ["TARGETID", "SUB_GROUP"],
         task5_rows,
     )
 
@@ -173,6 +206,7 @@ class AstroVLBenchAdapterTests(unittest.TestCase):
         )
         self.assertIn("Classify the optical", validated["official_guided_prompts"]["task1"]["default"])
         self.assertEqual(set(validated["official_guided_prompts"]["task5"]), {"q1", "q2", "q3"})
+        self.assertIn("Official user instruction", validated["official_guided_prompts"]["task1"]["default"])
 
     def test_lock_detects_tampering_and_unexpected_files(self) -> None:
         image = self.snapshot / "data" / "Task1_QSOHost" / "images" / "agn.jpg"
@@ -191,10 +225,42 @@ class AstroVLBenchAdapterTests(unittest.TestCase):
             with self.assertRaisesRegex(AstroVLBenchError, "HF_TOKEN"):
                 resolve_and_lock_snapshot(self.base / "download", self.base / "lock.json")
 
+    def test_local_snapshot_lock_uses_external_pointer_without_copying_source(self) -> None:
+        bundle = self.base / "prepared" / "astrovlbench"
+        lock = lock_local_snapshot(
+            self.snapshot,
+            bundle,
+            repo_id="fixture/AstroVLBench",
+            revision="c" * 40,
+        )
+        manifest = read_lock_manifest(lock)
+        self.assertEqual(Path(manifest["snapshot_path"]), self.snapshot.resolve())
+        self.assertFalse((bundle / "snapshot").exists())
+        validate_lock_manifest(self.snapshot, lock)
+
+    def test_protocol_release_contract_rejects_a_different_inventory(self) -> None:
+        config = {
+            "source_repo": self.manifest["repo_id"],
+            "locked_revision": self.manifest["commit_sha"],
+            "expected_snapshot_files": len(self.manifest["files"]),
+            "expected_snapshot_bytes": sum(
+                int(entry["size"]) for entry in self.manifest["files"]
+            ),
+            "expected_snapshot_inventory_sha256": self.manifest[
+                "snapshot_inventory_sha256"
+            ],
+        }
+        validate_protocol_release_contract(self.manifest, config)
+        changed = dict(config)
+        changed["expected_snapshot_inventory_sha256"] = "0" * 64
+        with self.assertRaisesRegex(LockValidationError, "protocol-pinned release"):
+            validate_protocol_release_contract(self.manifest, changed)
+
     def test_extracts_static_prompts_without_importing_release_code(self) -> None:
         prompts = extract_official_guided_prompts(self.snapshot)
-        self.assertEqual(prompts["task5"]["q1"], "Are both H-alpha and H-beta present?")
-        self.assertEqual(prompts["task3"]["default"], "Classify this SED plot as Type-1 AGN, Type-2 AGN, or Galaxy.")
+        self.assertIn("Are both H-alpha and H-beta present?", prompts["task5"]["q1"])
+        self.assertIn("Redshift: not provided.", prompts["task3"]["default"])
+        self.assertIn("Label this SED image.", prompts["task3"]["default"])
 
     def test_discovers_all_documented_tasks_and_reports_fixture_discrepancies(self) -> None:
         result = discover_records(self.snapshot, self.lock_path)
@@ -221,9 +287,10 @@ class AstroVLBenchAdapterTests(unittest.TestCase):
         self.assertEqual(len(task3), 3)
         for record in task3:
             serialized = json.dumps(record.to_dict()).casefold()
-            self.assertNotIn("redshift", serialized)
             self.assertNotIn("g_mag", serialized)
             self.assertEqual(record.metadata["modality"], "image")
+            self.assertEqual(record.metadata["redshift_mode"], "without")
+            self.assertNotIn('"redshift": 0.', serialized)
 
         serialized_records, report = materialize_locked_records(self.lock_path)
         self.assertEqual(len(serialized_records), 26)
@@ -241,6 +308,86 @@ class AstroVLBenchAdapterTests(unittest.TestCase):
         self.assertEqual(len(canonical["image_sha256"]), 64)
         self.assertEqual(canonical["record_index"], 1)
         validate_unique_records(serialized_records)
+
+    def test_first_overlay_excludes_missing_and_zero_byte_rows_without_mutating_source(self) -> None:
+        metadata = (
+            self.snapshot
+            / "data"
+            / "Task2_RadioMorph"
+            / "MiraBest_F"
+            / "metadata.jsonl"
+        )
+        with metadata.open("a", encoding="utf-8") as stream:
+            stream.write(
+                json.dumps(
+                    {
+                        "filename": "images/FRII/missing.png",
+                        "label": "FRII",
+                        "source_split": "test",
+                    }
+                )
+                + "\n"
+            )
+            stream.write(
+                json.dumps(
+                    {
+                        "filename": "images/FRII/empty.png",
+                        "label": "FRII",
+                        "source_split": "test",
+                    }
+                )
+                + "\n"
+            )
+        empty = metadata.parent / "images" / "FRII" / "empty.png"
+        empty.parent.mkdir(parents=True, exist_ok=True)
+        empty.write_bytes(b"")
+        self.manifest = create_lock_manifest(
+            self.snapshot,
+            repo_id="fixture/AstroVLBench",
+            requested_revision="fixture",
+            commit_sha="b" * 40,
+        )
+        write_lock_manifest(self.manifest, self.lock_path)
+        before = {
+            path.relative_to(self.snapshot).as_posix(): sha256_file(path)
+            for path in self.snapshot.rglob("*")
+            if path.is_file()
+        }
+
+        records, report = materialize_locked_records(self.lock_path)
+
+        after = {
+            path.relative_to(self.snapshot).as_posix(): sha256_file(path)
+            for path in self.snapshot.rglob("*")
+            if path.is_file()
+        }
+        self.assertEqual(before, after)
+        self.assertEqual(len([row for row in records if row["task_key"] == "task2.first"]), 1)
+        first = report["repair_report"]["first_metadata"]
+        self.assertEqual(first["raw_rows"], 3)
+        self.assertEqual(first["valid_rows"], 1)
+        self.assertEqual(
+            first["excluded_reason_counts"],
+            {
+                "missing_in_pinned_snapshot": 1,
+                "upstream_zero_byte_image": 1,
+            },
+        )
+        exclusions = [
+            json.loads(line)
+            for line in (
+                self.base
+                / "overlay"
+                / "data"
+                / "Task2_RadioMorph"
+                / "MiraBest_F"
+                / "exclusions.jsonl"
+            ).read_text(encoding="utf-8").splitlines()
+        ]
+        self.assertEqual({row["filename"] for row in exclusions}, {
+            "images/FRII/missing.png",
+            "images/FRII/empty.png",
+        })
 
     def test_task2_and_task5_share_source_ids_for_clustered_bootstrap(self) -> None:
         records = discover_records(self.snapshot, self.manifest).records

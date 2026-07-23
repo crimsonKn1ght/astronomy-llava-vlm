@@ -63,6 +63,7 @@ Common options:
   --protocol configs/paper_eval_v4.yaml
   --resume
   --lock-astrovlbench
+  --astrovlbench-snapshot PATH
   --dry-run
   --allow-dirty                 Diagnostic only; not valid for paper evidence
   --skip-hardware-check         Diagnostic only
@@ -72,6 +73,7 @@ Common options:
 Examples:
   bash scripts/runpod/run_paper_eval.sh --suites internal,deepsdo --models all --resume
   HF_TOKEN=... bash scripts/runpod/run_paper_eval.sh --lock-astrovlbench
+  bash scripts/runpod/run_paper_eval.sh prepare --protocol configs/paper_eval_astrovlbench_v1.yaml --suites astrovlbench --astrovlbench-snapshot datasets/paper_eval_astrovlbench_v1/astrovlbench/snapshot
   HF_TOKEN=... bash scripts/runpod/run_paper_eval.sh --suites astrovlbench --models all --resume
 
 The wrapper never trains a checkpoint. A definitive paper run requires a clean
@@ -152,6 +154,7 @@ for argument in "${original_args[@]}"; do
     --skip-hardware-check) skip_hardware=true ;;
     --dry-run) dry_run=true ;;
     --lock-astrovlbench) lock_requested=true ;;
+    --astrovlbench-snapshot|--astrovlbench-snapshot=*) lock_requested=true ;;
     --suites|--suites=*) suites_explicit=true ;;
   esac
 done
@@ -442,6 +445,7 @@ fi
 "${MODERN_VENV}/bin/python" -m pytest -q \
   tests/test_paper_*.py \
   tests/test_prepare_deepsdo.py \
+  tests/test_prepare_astrovlbench.py \
   tests/test_astrovlbench_adapter.py \
   tests/test_decode.py \
   tests/test_internal_paper_manifest.py \

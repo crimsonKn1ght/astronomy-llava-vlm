@@ -34,8 +34,11 @@ from typing import Any, Iterable, Iterator, Mapping, Sequence
 
 DATASET_NAME = "AstroVLBench"
 DEFAULT_REPO_ID = "XiaomanZhang/AstroVLBench"
-LOCK_SCHEMA_VERSION = 1
+PINNED_RELEASE_REVISION = "d1708958d4d1dda45c078eb2f4d6db3e6fa96286"
+LOCK_SCHEMA_VERSION = 2
 PROMPT_SOURCE_FILES = tuple(f"code/task{i}/llm.py" for i in range(1, 6))
+PROMPT_COMPOSITION_ID = "official-system-plus-user-v1"
+PROMPT_SEPARATOR = "\n\n--- Official user instruction ---\n"
 
 # These numbers are audit references from the public dataset card, not slicing
 # limits.  The locked files determine the actual denominator.
@@ -55,6 +58,25 @@ PUBLIC_REFERENCE_CONFLICTS = (
     "while the paper Methods describes 833 matched FIRST/NVSS sources; the locked "
     "snapshot, not either prose statement, determines the evaluation denominator",
 )
+
+PINNED_RELEASE_COUNTS: Mapping[str, int] = {
+    "task1": 557,
+    "task2.first": 605,
+    "task2.nvss": 833,
+    "task3": 168,
+    "task4": 142,
+    "task5.q1": 700,
+    "task5.q2": 500,
+    "task5.q3": 400,
+}
+PINNED_RELEASE_TOTAL = 3905
+PINNED_FIRST_RAW_ROWS = 833
+PINNED_FIRST_EXCLUSIONS: Mapping[str, int] = {
+    "missing_in_pinned_snapshot": 227,
+    "upstream_zero_byte_image": 1,
+}
+PINNED_FIRST_VALID_LABELS: Mapping[str, int] = {"FRI": 397, "FRII": 208}
+PINNED_FIRST_EXCLUDED_LABELS: Mapping[str, int] = {"FRII": 228}
 
 DOCUMENTED_LAYOUT: Mapping[str, str] = {
     "task1": "data/Task1_QSOHost/image_labels.csv",
@@ -133,6 +155,7 @@ _IMAGE_FIELDS = (
     "img",
     "figure",
     "figure_path",
+    "fig_path",
     "plot_path",
 )
 _SOURCE_ID_FIELDS = (
@@ -340,50 +363,25 @@ def _literal(node: ast.AST, symbols: Mapping[str, Any]) -> Any:
     raise ValueError(f"non-static expression: {type(node).__name__}")
 
 
-def _prompt_candidates_from_object(value: Any, path: tuple[str, ...] = ()) -> list[tuple[str, str]]:
-    candidates: list[tuple[str, str]] = []
-    if isinstance(value, Mapping):
-        for key, item in value.items():
-            candidates.extend(_prompt_candidates_from_object(item, path + (str(key),)))
-    elif isinstance(value, (list, tuple)):
-        for index, item in enumerate(value):
-            candidates.extend(_prompt_candidates_from_object(item, path + (str(index),)))
-    elif isinstance(value, str):
-        normalized_path = tuple(_normal_text(part) for part in path)
-        if any("guided" in part or "physical" in part for part in normalized_path):
-            question = next((part for part in normalized_path if part in {"q1", "q2", "q3"}), "default")
-            candidates.append((question, value.strip()))
-    return candidates
-
-
-def extract_guided_prompts_from_source(path: Path) -> Mapping[str, str]:
-    """Statically extract official guided/physical prompt strings from ``llm.py``.
-
-    The release scripts conventionally place prompts in literal dictionaries.  We
-    intentionally do not execute those scripts because they may import clients or
-    read credentials.  Ambiguous candidates are resolved deterministically by
-    selecting the longest guided string; every selected value and its source file
-    are captured in the immutable lock manifest.
-    """
+def _parse_static_source(path: Path) -> tuple[ast.Module, dict[str, Any]]:
+    """Parse prompt code and resolve only top-level literal assignments."""
 
     source = path.read_text(encoding="utf-8-sig")
     try:
         tree = ast.parse(source, filename=str(path))
     except SyntaxError as exc:
         raise PromptExtractionError(f"Cannot parse official prompt source {path}: {exc}") from exc
-
     symbols: dict[str, Any] = {}
     pending: list[tuple[str, ast.AST]] = []
     for node in tree.body:
-        if isinstance(node, (ast.Assign, ast.AnnAssign)):
-            targets = node.targets if isinstance(node, ast.Assign) else [node.target]
-            value_node = node.value
-            if value_node is None:
-                continue
-            for target in targets:
-                if isinstance(target, ast.Name):
-                    pending.append((target.id, value_node))
-
+        if not isinstance(node, (ast.Assign, ast.AnnAssign)):
+            continue
+        targets = node.targets if isinstance(node, ast.Assign) else [node.target]
+        if node.value is None:
+            continue
+        for target in targets:
+            if isinstance(target, ast.Name):
+                pending.append((target.id, node.value))
     for _ in range(len(pending) + 1):
         changed = False
         for name, value_node in pending:
@@ -393,100 +391,179 @@ def extract_guided_prompts_from_source(path: Path) -> Mapping[str, str]:
                 symbols[name] = _literal(value_node, symbols)
                 changed = True
             except (KeyError, TypeError, ValueError):
-                pass
+                continue
         if not changed:
             break
+    return tree, symbols
 
-    candidates: list[tuple[str, str]] = []
-    for name, value in symbols.items():
-        candidates.extend(_prompt_candidates_from_object(value, (name,)))
-        normalized_name = _normal_text(name)
-        if isinstance(value, str) and "prompt" in normalized_name and any(
-            token in normalized_name for token in ("guided", "physical")
-        ):
-            candidates.append(("default", value.strip()))
 
-    # Support direct ``if prompt_type == 'guided': ...`` code.  Task 5
-    # implementations sometimes put Q1/Q2/Q3 in outer branches, so retain that
-    # context rather than collapsing three different prompts into one default.
-    for node in ast.walk(tree):
-        if not isinstance(node, ast.If):
-            continue
-        try:
-            test_text = ast.unparse(node.test).casefold()
-        except Exception:
-            test_text = ""
-        subtree_text = " ".join(
-            ast.unparse(child.test).casefold()
-            for child in ast.walk(node)
-            if isinstance(child, ast.If)
-        )
-        if "guided" not in subtree_text and "physical" not in subtree_text:
-            continue
-        question = next(
-            (
-                key
-                for key in ("q1", "q2", "q3")
-                if re.search(rf"[\"']{key}[\"']", test_text)
-            ),
-            "default",
-        )
-        for child in ast.walk(ast.Module(body=node.body, type_ignores=[])):
-            value_node: ast.AST | None = None
-            if isinstance(child, ast.Return) and child.value is not None:
-                value_node = child.value
-            elif isinstance(child, (ast.Assign, ast.AnnAssign)):
-                targets = child.targets if isinstance(child, ast.Assign) else [child.target]
-                names = [target.id.casefold() for target in targets if isinstance(target, ast.Name)]
-                if any("prompt" in name or "message" in name for name in names):
-                    value_node = child.value
-            if value_node is not None:
-                try:
-                    value = _literal(value_node, symbols)
-                except (TypeError, ValueError):
-                    continue
-                if isinstance(value, str):
-                    candidates.append((question, value.strip()))
+def _required_string(symbols: Mapping[str, Any], name: str, path: Path) -> str:
+    value = symbols.get(name)
+    if not isinstance(value, str) or not value.strip():
+        raise PromptExtractionError(f"{path} has no static non-empty {name}")
+    return value.strip()
 
-    selected: dict[str, str] = {}
-    for key in {candidate[0] for candidate in candidates}:
-        options = sorted(
-            {text for candidate_key, text in candidates if candidate_key == key and text},
-            key=lambda text: (len(text), text),
-        )
-        if options:
-            selected[key] = options[-1]
-    if not selected:
+
+def _function(tree: ast.Module, name: str, path: Path) -> ast.FunctionDef:
+    matches = [
+        node
+        for node in tree.body
+        if isinstance(node, ast.FunctionDef) and node.name == name
+    ]
+    if len(matches) != 1:
+        raise PromptExtractionError(f"{path} must define exactly one {name} function")
+    return matches[0]
+
+
+def _literal_return(
+    tree: ast.Module,
+    symbols: Mapping[str, Any],
+    function_name: str,
+    bindings: Mapping[str, Any],
+    path: Path,
+) -> str:
+    function = _function(tree, function_name, path)
+    returns = [node for node in ast.walk(function) if isinstance(node, ast.Return)]
+    if len(returns) != 1 or returns[0].value is None:
+        raise PromptExtractionError(f"{path}:{function_name} must have one static return")
+    try:
+        value = _literal(returns[0].value, {**symbols, **bindings})
+    except (KeyError, TypeError, ValueError) as exc:
         raise PromptExtractionError(
-            f"No static guided/physical prompt found in {path}. The upstream prompt code "
-            "changed; inspect and extend the static extractor before evaluation."
+            f"Cannot statically render {path}:{function_name}: {exc}"
+        ) from exc
+    if not isinstance(value, str) or not value.strip():
+        raise PromptExtractionError(f"{path}:{function_name} returned no prompt text")
+    return value.strip()
+
+
+def _task3_without_redshift_prompt(
+    tree: ast.Module, symbols: Mapping[str, Any], path: Path
+) -> str:
+    function = _function(tree, "build_image_prompt", path)
+    assignments: dict[str, list[str]] = {"redshift_block": [], "redshift_instruction": []}
+    for node in ast.walk(function):
+        if not isinstance(node, (ast.Assign, ast.AnnAssign)) or node.value is None:
+            continue
+        targets = node.targets if isinstance(node, ast.Assign) else [node.target]
+        names = [target.id for target in targets if isinstance(target, ast.Name)]
+        for name in names:
+            if name not in assignments:
+                continue
+            try:
+                value = _literal(node.value, symbols)
+            except (KeyError, TypeError, ValueError):
+                continue
+            if isinstance(value, str):
+                assignments[name].append(value)
+    redshift_blocks = [
+        value for value in assignments["redshift_block"] if "not provided" in value.casefold()
+    ]
+    redshift_instructions = [
+        value for value in assignments["redshift_instruction"] if "do not assume" in value.casefold()
+    ]
+    if len(set(redshift_blocks)) != 1 or len(set(redshift_instructions)) != 1:
+        raise PromptExtractionError(
+            f"{path}:build_image_prompt has no unambiguous without-redshift branch"
         )
-    return selected
+    template = _required_string(symbols, "SYSTEM_PROMPT_IMAGE", path)
+    try:
+        rendered = template.format(
+            REDSHIFT_BLOCK=redshift_blocks[0],
+            REDSHIFT_INSTRUCTION=redshift_instructions[0],
+        )
+    except (KeyError, ValueError) as exc:
+        raise PromptExtractionError(f"Cannot render Task 3 image prompt: {exc}") from exc
+    return rendered.strip()
 
 
-def extract_official_guided_prompts(snapshot_dir: Path) -> Mapping[str, Mapping[str, str]]:
+def _compose_prompt(system_prompt: str, user_text: str) -> str:
+    system = system_prompt.strip()
+    user = user_text.strip()
+    if not system or not user:
+        raise PromptExtractionError("Official system and user prompt components must be non-empty")
+    return system + PROMPT_SEPARATOR + user
+
+
+def extract_official_prompt_components(
+    snapshot_dir: Path,
+) -> Mapping[str, Mapping[str, Mapping[str, str]]]:
+    """Extract the pinned release prompts without importing or executing its code."""
+
     root = snapshot_dir.resolve()
-    prompts: dict[str, Mapping[str, str]] = {}
+    parsed: dict[int, tuple[Path, ast.Module, dict[str, Any]]] = {}
     for index, relative in enumerate(PROMPT_SOURCE_FILES, 1):
         path = root / PurePosixPath(relative)
         if not path.is_file():
             raise PromptExtractionError(f"Missing official prompt source: {relative}")
-        extracted = dict(extract_guided_prompts_from_source(path))
-        if index == 5:
-            missing = [question for question in ("q1", "q2", "q3") if question not in extracted]
-            if missing and "default" not in extracted:
-                raise PromptExtractionError(
-                    f"{relative} has no prompt for {', '.join(missing)} and no default prompt"
-                )
-        elif "default" not in extracted:
-            # Some sources key their only prompt by a task name; retaining exactly
-            # one candidate is unambiguous.
-            if len(extracted) == 1:
-                extracted = {"default": next(iter(extracted.values()))}
-            else:
-                raise PromptExtractionError(f"{relative} has no unambiguous default guided prompt")
-        prompts[f"task{index}"] = extracted
-    return prompts
+        tree, symbols = _parse_static_source(path)
+        parsed[index] = (path, tree, symbols)
+
+    path1, _, symbols1 = parsed[1]
+    path2, tree2, symbols2 = parsed[2]
+    path3, tree3, symbols3 = parsed[3]
+    path4, _, symbols4 = parsed[4]
+    path5, _, symbols5 = parsed[5]
+    raw: dict[str, dict[str, tuple[str, str]]] = {
+        "task1": {
+            "default": (
+                _required_string(symbols1, "SYSTEM_PROMPT_GUIDED", path1),
+                _required_string(symbols1, "USER_TEXT", path1),
+            )
+        },
+        "task2": {
+            "first": (
+                _literal_return(
+                    tree2, symbols2, "build_prompt_guided", {"survey": "FIRST"}, path2
+                ),
+                _required_string(symbols2, "USER_TEXT", path2),
+            ),
+            "nvss": (
+                _literal_return(
+                    tree2, symbols2, "build_prompt_guided", {"survey": "NVSS"}, path2
+                ),
+                _required_string(symbols2, "USER_TEXT", path2),
+            ),
+        },
+        "task3": {
+            "default": (
+                _task3_without_redshift_prompt(tree3, symbols3, path3),
+                _required_string(symbols3, "USER_TEXT", path3),
+            )
+        },
+        "task4": {
+            "default": (
+                _required_string(symbols4, "SYSTEM_PROMPT_IMAGE", path4),
+                _required_string(symbols4, "USER_TEXT_IMAGE", path4),
+            )
+        },
+        "task5": {
+            question: (
+                _required_string(symbols5, f"SYSTEM_PROMPT_{question.upper()}", path5),
+                _required_string(symbols5, f"USER_TEXT_{question.upper()}", path5),
+            )
+            for question in ("q1", "q2", "q3")
+        },
+    }
+    return {
+        task: {
+            key: {
+                "system": system,
+                "user": user,
+                "composed": _compose_prompt(system, user),
+            }
+            for key, (system, user) in values.items()
+        }
+        for task, values in raw.items()
+    }
+
+
+def extract_official_guided_prompts(snapshot_dir: Path) -> Mapping[str, Mapping[str, str]]:
+    components = extract_official_prompt_components(snapshot_dir)
+    return {
+        task: {key: values["composed"] for key, values in task_values.items()}
+        for task, task_values in components.items()
+    }
 
 
 def create_lock_manifest(
@@ -519,7 +596,11 @@ def create_lock_manifest(
         raise LockValidationError(
             "Snapshot is missing official prompt source files: " + ", ".join(missing_prompt_sources)
         )
-    prompts = extract_official_guided_prompts(root)
+    components = extract_official_prompt_components(root)
+    prompts = {
+        task: {key: value["composed"] for key, value in values.items()}
+        for task, values in components.items()
+    }
     prompt_sources = [dict(by_path[path]) for path in PROMPT_SOURCE_FILES]
     return {
         "schema_version": LOCK_SCHEMA_VERSION,
@@ -533,10 +614,29 @@ def create_lock_manifest(
             "modality": "image",
             "few_shot": False,
             "task3_redshift_mode": "without",
+            "prompt_composition_id": PROMPT_COMPOSITION_ID,
         },
+        "snapshot_inventory_sha256": sha256_text(
+            json.dumps(files, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+        ),
         "files": files,
         "official_prompt_sources": prompt_sources,
+        "prompt_composition": {
+            "id": PROMPT_COMPOSITION_ID,
+            "separator": PROMPT_SEPARATOR,
+        },
+        "official_prompt_components": components,
         "official_guided_prompts": prompts,
+        "official_prompt_component_sha256": {
+            task: {
+                key: {
+                    component: sha256_text(text)
+                    for component, text in values.items()
+                }
+                for key, values in task_components.items()
+            }
+            for task, task_components in components.items()
+        },
         "official_guided_prompt_sha256": {
             task: {key: sha256_text(value) for key, value in task_prompts.items()}
             for task, task_prompts in prompts.items()
@@ -561,6 +661,7 @@ def read_lock_manifest(path: Path) -> dict[str, Any]:
         "commit_sha",
         "files",
         "official_prompt_sources",
+        "official_prompt_components",
         "official_guided_prompts",
     }
     missing = sorted(required - value.keys()) if isinstance(value, dict) else sorted(required)
@@ -625,9 +726,30 @@ def validate_lock_manifest(
     prompt_paths = {str(entry.get("path")) for entry in prompt_sources if isinstance(entry, Mapping)}
     if prompt_paths != set(PROMPT_SOURCE_FILES):
         raise LockValidationError("Lock does not identify exactly the five official prompt source files")
-    extracted = extract_official_guided_prompts(root)
+    components = extract_official_prompt_components(root)
+    extracted = {
+        task: {key: values["composed"] for key, values in task_values.items()}
+        for task, task_values in components.items()
+    }
+    if components != manifest.get("official_prompt_components"):
+        raise LockValidationError("Official prompt components differ from the lock manifest")
     if extracted != manifest.get("official_guided_prompts"):
         raise LockValidationError("Official guided prompt extraction differs from the lock manifest")
+    composition = manifest.get("prompt_composition")
+    if composition != {"id": PROMPT_COMPOSITION_ID, "separator": PROMPT_SEPARATOR}:
+        raise LockValidationError("Unsupported official prompt composition contract")
+    component_hashes = {
+        task: {
+            key: {
+                component: sha256_text(text)
+                for component, text in values.items()
+            }
+            for key, values in task_components.items()
+        }
+        for task, task_components in components.items()
+    }
+    if component_hashes != manifest.get("official_prompt_component_sha256"):
+        raise LockValidationError("Official prompt component hash mismatch")
     hashes = {
         task: {key: sha256_text(value) for key, value in values.items()}
         for task, values in extracted.items()
@@ -636,6 +758,50 @@ def validate_lock_manifest(
         "official_guided_prompt_sha256"
     ]:
         raise LockValidationError("Official guided prompt text hash mismatch")
+    return manifest
+
+
+def validate_protocol_release_contract(
+    manifest_or_path: Mapping[str, Any] | Path,
+    dataset_config: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Bind a raw snapshot lock to the immutable inventory declared by a protocol."""
+
+    manifest = (
+        read_lock_manifest(manifest_or_path)
+        if isinstance(manifest_or_path, Path)
+        else dict(manifest_or_path)
+    )
+    expected_revision = str(dataset_config.get("locked_revision") or "")
+    expected_repo = str(dataset_config.get("source_repo") or "")
+    observed_files = len(manifest["files"])
+    observed_bytes = sum(int(entry["size"]) for entry in manifest["files"])
+    observed_inventory = str(manifest.get("snapshot_inventory_sha256") or "")
+    failures = []
+    if manifest.get("repo_id") != expected_repo:
+        failures.append(f"repo={manifest.get('repo_id')!r}/{expected_repo!r}")
+    if manifest.get("commit_sha") != expected_revision:
+        failures.append(f"revision={manifest.get('commit_sha')!r}/{expected_revision!r}")
+    if observed_files != int(dataset_config.get("expected_snapshot_files") or 0):
+        failures.append(
+            f"files={observed_files}/{dataset_config.get('expected_snapshot_files')}"
+        )
+    if observed_bytes != int(dataset_config.get("expected_snapshot_bytes") or 0):
+        failures.append(
+            f"bytes={observed_bytes}/{dataset_config.get('expected_snapshot_bytes')}"
+        )
+    if observed_inventory != str(
+        dataset_config.get("expected_snapshot_inventory_sha256") or ""
+    ):
+        failures.append(
+            "inventory="
+            f"{observed_inventory}/{dataset_config.get('expected_snapshot_inventory_sha256')}"
+        )
+    if failures:
+        raise LockValidationError(
+            "AstroVLBench snapshot does not match the protocol-pinned release: "
+            + ", ".join(failures)
+        )
     return manifest
 
 
@@ -714,6 +880,257 @@ def lock_huggingface_snapshot(
     write_lock_manifest(manifest, lock_path)
     validate_lock_manifest(snapshot_dir, lock_path)
     return lock_path
+
+
+def lock_local_snapshot(
+    snapshot_dir: Path,
+    output_dir: Path,
+    *,
+    repo_id: str = DEFAULT_REPO_ID,
+    revision: str = PINNED_RELEASE_REVISION,
+) -> Path:
+    """Adopt an existing ``hf download`` directory without modifying or copying it."""
+
+    snapshot = Path(snapshot_dir).resolve()
+    bundle = Path(output_dir).resolve()
+    bundle.mkdir(parents=True, exist_ok=True)
+    lock_path = bundle / "astrovlbench.lock.json"
+    manifest = create_lock_manifest(
+        snapshot,
+        repo_id=repo_id,
+        requested_revision=revision,
+        commit_sha=revision,
+    )
+    try:
+        relative = snapshot.relative_to(bundle)
+    except ValueError:
+        manifest["snapshot_path"] = str(snapshot)
+    else:
+        manifest["snapshot_relpath"] = relative.as_posix()
+    write_lock_manifest(manifest, lock_path)
+    validate_lock_manifest(snapshot, lock_path)
+    return lock_path
+
+
+def _snapshot_from_lock(lock_path: Path, manifest: Mapping[str, Any]) -> Path:
+    absolute = manifest.get("snapshot_path")
+    if absolute:
+        snapshot = Path(str(absolute))
+        if not snapshot.is_absolute():
+            raise LockValidationError("snapshot_path in the lock must be absolute")
+        return snapshot.resolve()
+    relative = manifest.get("snapshot_relpath", "snapshot")
+    relative_path = PurePosixPath(str(relative))
+    if relative_path.is_absolute() or ".." in relative_path.parts:
+        raise LockValidationError(f"Unsafe snapshot_relpath in lock: {relative!r}")
+    return (Path(lock_path).resolve().parent / relative_path).resolve()
+
+
+def _atomic_write_text(path: Path, text: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_name(path.name + ".tmp")
+    temporary.write_text(text, encoding="utf-8", newline="\n")
+    temporary.replace(path)
+
+
+def _verify_decodable_image(
+    path: Path,
+) -> tuple[bool, str | None, tuple[int, int] | None, str | None]:
+    if not path.is_file():
+        return False, "missing_in_pinned_snapshot", None, None
+    if path.stat().st_size == 0:
+        return False, "upstream_zero_byte_image", None, None
+    try:
+        from PIL import Image
+
+        with Image.open(path) as image:
+            size = image.size
+            mode = image.mode
+            image.verify()
+        return True, None, size, mode
+    except Exception as exc:
+        return False, f"unreadable_image:{type(exc).__name__}:{exc}", None, None
+
+
+def _jsonl_text(rows: Iterable[Mapping[str, Any]]) -> str:
+    return "".join(
+        json.dumps(dict(row), ensure_ascii=False, sort_keys=True) + "\n"
+        for row in rows
+    )
+
+
+def build_first_overlay(
+    snapshot_dir: Path,
+    output_dir: Path,
+    *,
+    revision: str,
+) -> dict[str, Any]:
+    """Build the deterministic FIRST correction overlay and full image-QA report."""
+
+    snapshot = Path(snapshot_dir).resolve()
+    output = Path(output_dir).resolve()
+    if output == snapshot or output.is_relative_to(snapshot):
+        raise LockValidationError("The correction overlay must be outside the immutable snapshot")
+    relative_metadata = PurePosixPath(DOCUMENTED_LAYOUT["task2.first"])
+    raw_metadata = snapshot / relative_metadata
+    rows = _read_jsonl_rows(raw_metadata)
+    filenames = [str(row.get("filename") or "") for row in rows]
+    if any(not value for value in filenames):
+        raise SchemaError("FIRST metadata contains a blank filename")
+    duplicate_filenames = sorted(
+        name for name, count in Counter(filenames).items() if count != 1
+    )
+    if duplicate_filenames:
+        raise SchemaError(
+            f"FIRST metadata contains duplicate filenames: {duplicate_filenames[:10]}"
+        )
+
+    valid_rows: list[dict[str, Any]] = []
+    exclusions: list[dict[str, Any]] = []
+    valid_dimensions: Counter[str] = Counter()
+    valid_modes: Counter[str] = Counter()
+    first_root = raw_metadata.parent
+    for source_line, source in enumerate(rows, 1):
+        row = dict(source)
+        filename = str(row["filename"])
+        relative = PurePosixPath(filename.replace("\\", "/"))
+        if relative.is_absolute() or ".." in relative.parts:
+            raise SchemaError(f"Unsafe FIRST image reference: {filename!r}")
+        image_path = first_root / relative
+        valid, reason, size, mode = _verify_decodable_image(image_path)
+        if valid:
+            valid_rows.append(row)
+            assert size is not None and mode is not None
+            valid_dimensions[f"{size[0]}x{size[1]}"] += 1
+            valid_modes[mode] += 1
+        else:
+            exclusions.append(
+                {
+                    "source_line": source_line,
+                    "filename": filename,
+                    "label": str(row.get("label") or ""),
+                    "source_split": str(row.get("source_split") or ""),
+                    "reason": reason,
+                    "local_size_bytes": (
+                        image_path.stat().st_size if image_path.is_file() else None
+                    ),
+                }
+            )
+
+    overlay_metadata = output / relative_metadata
+    exclusions_path = (
+        output / "data/Task2_RadioMorph/MiraBest_F/exclusions.jsonl"
+    )
+    _atomic_write_text(overlay_metadata, _jsonl_text(valid_rows))
+    _atomic_write_text(exclusions_path, _jsonl_text(exclusions))
+
+    image_paths = sorted(
+        path
+        for path in (snapshot / "data").rglob("*")
+        if path.is_file() and path.suffix.casefold() in _IMAGE_SUFFIXES
+    )
+    invalid_images: list[dict[str, Any]] = []
+    image_counts: Counter[str] = Counter()
+    image_hashes: dict[str, list[str]] = {}
+    for path in image_paths:
+        relative = path.relative_to(snapshot / "data")
+        image_counts[relative.parts[0]] += 1
+        valid, reason, _, _ = _verify_decodable_image(path)
+        if not valid:
+            invalid_images.append(
+                {
+                    "path": relative.as_posix(),
+                    "reason": reason,
+                    "size_bytes": path.stat().st_size,
+                }
+            )
+        digest = sha256_file(path)
+        image_hashes.setdefault(digest, []).append(relative.as_posix())
+    duplicate_groups = sorted(
+        (members for members in image_hashes.values() if len(members) > 1),
+        key=lambda members: members[0],
+    )
+
+    reason_counts = Counter(str(row["reason"]) for row in exclusions)
+    valid_labels = Counter(str(row.get("label") or "") for row in valid_rows)
+    excluded_labels = Counter(str(row.get("label") or "") for row in exclusions)
+    if revision == PINNED_RELEASE_REVISION:
+        observed = {
+            "raw_rows": len(rows),
+            "valid_rows": len(valid_rows),
+            "excluded_rows": len(exclusions),
+        }
+        expected = {
+            "raw_rows": PINNED_FIRST_RAW_ROWS,
+            "valid_rows": PINNED_RELEASE_COUNTS["task2.first"],
+            "excluded_rows": sum(PINNED_FIRST_EXCLUSIONS.values()),
+        }
+        if observed != expected:
+            raise SchemaError(f"Pinned FIRST row counts changed: {observed}, expected {expected}")
+        if dict(reason_counts) != dict(PINNED_FIRST_EXCLUSIONS):
+            raise SchemaError(
+                f"Pinned FIRST exclusion reasons changed: {dict(reason_counts)}"
+            )
+        if dict(valid_labels) != dict(PINNED_FIRST_VALID_LABELS):
+            raise SchemaError(f"Pinned FIRST valid labels changed: {dict(valid_labels)}")
+        if dict(excluded_labels) != dict(PINNED_FIRST_EXCLUDED_LABELS):
+            raise SchemaError(
+                f"Pinned FIRST excluded labels changed: {dict(excluded_labels)}"
+            )
+        expected_invalid = {
+            "Task2_RadioMorph/MiraBest_F/images/FRII/"
+            "200_198.125+019.841_0.3720_0030.50.png"
+        }
+        observed_invalid = {str(row["path"]) for row in invalid_images}
+        if observed_invalid != expected_invalid:
+            raise SchemaError(
+                f"Pinned release invalid-image set changed: {sorted(observed_invalid)}"
+            )
+        if duplicate_groups:
+            raise SchemaError(
+                f"Pinned release unexpectedly contains duplicate image hashes: {duplicate_groups[:3]}"
+            )
+
+    report = {
+        "schema_version": 1,
+        "repair_policy": (
+            "non-destructive overlay; retain only FIRST metadata rows whose pinned "
+            "image exists, is non-empty, and passes Pillow verification"
+        ),
+        "source": {
+            "repo_id": DEFAULT_REPO_ID,
+            "revision": revision,
+            "snapshot_path": str(snapshot),
+            "raw_first_metadata": relative_metadata.as_posix(),
+            "raw_first_metadata_sha256": sha256_file(raw_metadata),
+        },
+        "first_metadata": {
+            "raw_rows": len(rows),
+            "valid_rows": len(valid_rows),
+            "excluded_rows": len(exclusions),
+            "valid_label_counts": dict(sorted(valid_labels.items())),
+            "excluded_reason_counts": dict(sorted(reason_counts.items())),
+            "excluded_label_counts": dict(sorted(excluded_labels.items())),
+            "valid_dimensions": dict(sorted(valid_dimensions.items())),
+            "valid_modes": dict(sorted(valid_modes.items())),
+            "overlay_metadata": overlay_metadata.relative_to(output).as_posix(),
+            "overlay_metadata_sha256": sha256_file(overlay_metadata),
+            "exclusions_ledger": exclusions_path.relative_to(output).as_posix(),
+            "exclusions_sha256": sha256_file(exclusions_path),
+        },
+        "full_image_audit": {
+            "image_files": len(image_paths),
+            "readable_images": len(image_paths) - len(invalid_images),
+            "invalid_images": invalid_images,
+            "counts_by_task": dict(sorted(image_counts.items())),
+            "duplicate_sha256_groups": duplicate_groups,
+        },
+    }
+    _atomic_write_text(
+        output / "repair_report.json",
+        json.dumps(report, indent=2, ensure_ascii=False, sort_keys=True) + "\n",
+    )
+    return report
 
 
 def discover_documented_layout(snapshot_dir: Path) -> Mapping[str, Path]:
@@ -839,7 +1256,13 @@ def _sample_token(value: str) -> str:
     return token
 
 
-def _prompt(prompts: Mapping[str, Mapping[str, str]], task: str, subtask: str | None = None) -> str:
+def _prompt(
+    manifest: Mapping[str, Any], task: str, subtask: str | None = None
+) -> tuple[str, Mapping[str, str]]:
+    prompts = manifest.get("official_guided_prompts")
+    components = manifest.get("official_prompt_components")
+    if not isinstance(prompts, Mapping) or not isinstance(components, Mapping):
+        raise LockValidationError("Lock manifest has no official prompt contract")
     values = prompts.get(task)
     if not isinstance(values, Mapping):
         raise LockValidationError(f"Lock manifest has no official prompt mapping for {task}")
@@ -847,7 +1270,27 @@ def _prompt(prompts: Mapping[str, Mapping[str, str]], task: str, subtask: str | 
     result = values.get(key, values.get("default"))
     if not isinstance(result, str) or not result.strip():
         raise LockValidationError(f"Lock manifest has no official guided prompt for {task}.{key}")
-    return result
+    task_components = components.get(task)
+    component = (
+        task_components.get(key, task_components.get("default"))
+        if isinstance(task_components, Mapping)
+        else None
+    )
+    if not isinstance(component, Mapping):
+        raise LockValidationError(f"Lock manifest has no prompt components for {task}.{key}")
+    system = component.get("system")
+    user = component.get("user")
+    composed = component.get("composed")
+    if not all(isinstance(value, str) and value.strip() for value in (system, user, composed)):
+        raise LockValidationError(f"Malformed prompt components for {task}.{key}")
+    if composed != result:
+        raise LockValidationError(f"Composed prompt differs for {task}.{key}")
+    return result, {
+        "prompt_composition_id": PROMPT_COMPOSITION_ID,
+        "system_prompt_sha256": sha256_text(str(system)),
+        "user_prompt_sha256": sha256_text(str(user)),
+        "composed_prompt_sha256": sha256_text(result),
+    }
 
 
 def _record(
@@ -881,7 +1324,7 @@ def _materialize_simple_csv(
     root: Path,
     source_file: Path,
     task: str,
-    prompts: Mapping[str, Mapping[str, str]],
+    manifest: Mapping[str, Any],
 ) -> list[AstroVLBenchRecord]:
     task_dir = source_file.parent
     index = _ImageIndex(task_dir, root)
@@ -895,6 +1338,7 @@ def _materialize_simple_csv(
             label_value = image.parent.name
         label = _canonical_label(task, label_value)
         source_id = _source_id(row, image)
+        prompt, prompt_evidence = _prompt(manifest, task)
         records.append(
             _record(
                 root,
@@ -903,12 +1347,13 @@ def _materialize_simple_csv(
                 task=task,
                 subtask=None,
                 image=image,
-                prompt=_prompt(prompts, task),
+                prompt=prompt,
                 label=label,
                 metadata={
                     "modality": "image",
                     "prompt_type": "guided",
                     "source_row": str(row_number),
+                    **prompt_evidence,
                 },
             )
         )
@@ -919,9 +1364,11 @@ def _materialize_task2(
     root: Path,
     source_file: Path,
     subtask: str,
-    prompts: Mapping[str, Mapping[str, str]],
+    manifest: Mapping[str, Any],
+    *,
+    image_task_dir: Path | None = None,
 ) -> list[AstroVLBenchRecord]:
-    task_dir = source_file.parent
+    task_dir = image_task_dir or source_file.parent
     index = _ImageIndex(task_dir, root)
     records: list[AstroVLBenchRecord] = []
     for row_number, row in enumerate(_read_jsonl_rows(source_file), 1):
@@ -932,6 +1379,7 @@ def _materialize_task2(
         label_value = label_value or image.parent.name
         label = _canonical_label(f"task2.{subtask}", label_value)
         source_id = _source_id(row, image, survey=subtask)
+        prompt, prompt_evidence = _prompt(manifest, "task2", subtask)
         records.append(
             _record(
                 root,
@@ -940,13 +1388,58 @@ def _materialize_task2(
                 task="task2",
                 subtask=subtask,
                 image=image,
-                prompt=_prompt(prompts, "task2"),
+                prompt=prompt,
                 label=label,
                 metadata={
                     "modality": "image",
                     "prompt_type": "guided",
                     "survey": subtask.upper(),
                     "source_row": str(row_number),
+                    **prompt_evidence,
+                },
+            )
+        )
+    return records
+
+
+_TASK3_IMAGE_PREFIX: Mapping[str, str] = {
+    "Type-1 AGN": "Type1AGN",
+    "Type-2 AGN": "Type2AGN",
+    "Galaxy": "Galaxy",
+}
+
+
+def _materialize_task3(
+    root: Path,
+    source_file: Path,
+    manifest: Mapping[str, Any],
+) -> list[AstroVLBenchRecord]:
+    index = _ImageIndex(source_file.parent, root)
+    records: list[AstroVLBenchRecord] = []
+    prompt, prompt_evidence = _prompt(manifest, "task3")
+    for row_number, row in enumerate(_read_csv_rows(source_file), 2):
+        source_value = _row_value(row, ("targetid",), required=True)
+        label_value = _row_value(row, ("class",), required=True)
+        assert source_value is not None and label_value is not None
+        label = _canonical_label("task3", label_value)
+        image = index.resolve(f"{_TASK3_IMAGE_PREFIX[label]}_{source_value}.png")
+        source_id = _source_id(row, image)
+        records.append(
+            _record(
+                root,
+                sample_id=f"astrovlbench_task3_{_sample_token(source_id)}",
+                source_id=source_id,
+                task="task3",
+                subtask=None,
+                image=image,
+                prompt=prompt,
+                label=label,
+                metadata={
+                    "modality": "image",
+                    "prompt_type": "guided",
+                    "redshift_mode": "without",
+                    "source_row": str(row_number),
+                    **prompt_evidence,
                 },
             )
         )
@@ -973,7 +1466,7 @@ _TASK5_LABELS: Mapping[str, Mapping[str, str]] = {
 def _materialize_task5(
     root: Path,
     source_file: Path,
-    prompts: Mapping[str, Mapping[str, str]],
+    manifest: Mapping[str, Any],
 ) -> tuple[list[AstroVLBenchRecord], Mapping[str, int]]:
     task_dir = source_file.parent
     index = _ImageIndex(task_dir, root)
@@ -984,14 +1477,15 @@ def _materialize_task5(
         assert group_value is not None
         group = _normalize_group(group_value)
         group_counts[group] += 1
-        image_ref = _row_value(row, _IMAGE_FIELDS) or _row_value(row, _SOURCE_ID_FIELDS, required=True)
-        assert image_ref is not None
-        image = index.resolve(image_ref, (group, f"Group_{group}"))
+        target_id = _row_value(row, ("TARGETID",), required=True)
+        assert target_id is not None
+        image = index.resolve(f"spectrum_{target_id}.png")
         source_id = _source_id(row, image)
         cluster_id = f"spectrum_{source_id}"
         for question, label_by_group in _TASK5_LABELS.items():
             if group not in label_by_group:
                 continue
+            prompt, prompt_evidence = _prompt(manifest, "task5", question)
             records.append(
                 _record(
                     root,
@@ -1000,13 +1494,14 @@ def _materialize_task5(
                     task="task5",
                     subtask=question,
                     image=image,
-                    prompt=_prompt(prompts, "task5", question),
+                    prompt=prompt,
                     label=label_by_group[group],
                     metadata={
                         "modality": "image",
                         "prompt_type": "guided",
                         "asib_group": group,
                         "source_row": str(row_number),
+                        **prompt_evidence,
                     },
                 )
             )
@@ -1018,9 +1513,12 @@ def _assert_unique_complete(records: Sequence[AstroVLBenchRecord]) -> None:
     duplicate_ids = sorted(sample_id for sample_id, count in counts.items() if count != 1)
     if duplicate_ids:
         raise SchemaError(f"Duplicate materialized sample IDs: {duplicate_ids[:10]}")
+    for image_path in sorted({record.image_path for record in records}):
+        image = Path(image_path)
+        valid, reason, _, _ = _verify_decodable_image(image)
+        if not valid:
+            raise SchemaError(f"Materialized image is invalid ({reason}): {image}")
     for record in records:
-        if not Path(record.image_path).is_file():
-            raise SchemaError(f"Materialized image is missing: {record.image_path}")
         if record.reference_label not in record.allowed_labels:
             raise SchemaError(f"Label {record.reference_label!r} is not allowed for {record.task_key}")
 
@@ -1028,21 +1526,40 @@ def _assert_unique_complete(records: Sequence[AstroVLBenchRecord]) -> None:
 def discover_records(
     snapshot_dir: Path,
     lock_manifest: Mapping[str, Any] | Path,
+    *,
+    overlay_dir: Path | None = None,
 ) -> DiscoveryResult:
     """Validate a locked snapshot and materialize every documented image task."""
 
     root = snapshot_dir.resolve()
     manifest = validate_lock_manifest(root, lock_manifest)
     layout = discover_documented_layout(root)
-    prompts = manifest["official_guided_prompts"]
+    overlay = Path(overlay_dir).resolve() if overlay_dir is not None else None
+    first_metadata = (
+        overlay / PurePosixPath(DOCUMENTED_LAYOUT["task2.first"])
+        if overlay is not None
+        else layout["task2.first"]
+    )
+    if not first_metadata.is_file():
+        raise SchemaError(
+            "Prepared FIRST overlay metadata is missing; run AstroVLBench preparation first"
+        )
 
     records: list[AstroVLBenchRecord] = []
-    records.extend(_materialize_simple_csv(root, layout["task1"], "task1", prompts))
-    records.extend(_materialize_task2(root, layout["task2.first"], "first", prompts))
-    records.extend(_materialize_task2(root, layout["task2.nvss"], "nvss", prompts))
-    records.extend(_materialize_simple_csv(root, layout["task3"], "task3", prompts))
-    records.extend(_materialize_simple_csv(root, layout["task4"], "task4", prompts))
-    task5_records, task5_groups = _materialize_task5(root, layout["task5"], prompts)
+    records.extend(_materialize_simple_csv(root, layout["task1"], "task1", manifest))
+    records.extend(
+        _materialize_task2(
+            root,
+            first_metadata,
+            "first",
+            manifest,
+            image_task_dir=layout["task2.first"].parent,
+        )
+    )
+    records.extend(_materialize_task2(root, layout["task2.nvss"], "nvss", manifest))
+    records.extend(_materialize_task3(root, layout["task3"], manifest))
+    records.extend(_materialize_simple_csv(root, layout["task4"], "task4", manifest))
+    task5_records, task5_groups = _materialize_task5(root, layout["task5"], manifest)
     records.extend(task5_records)
     records.sort(key=lambda record: record.sample_id)
     _assert_unique_complete(records)
@@ -1055,6 +1572,16 @@ def discover_records(
         if expected_counts[key] != reference
     )
     discrepancies = tuple(PUBLIC_REFERENCE_CONFLICTS) + count_discrepancies
+    if str(manifest.get("commit_sha")) == PINNED_RELEASE_REVISION:
+        observed_counts = {key: counts.get(key, 0) for key in PINNED_RELEASE_COUNTS}
+        if observed_counts != dict(PINNED_RELEASE_COUNTS):
+            raise SchemaError(
+                f"Pinned AstroVLBench component counts changed: {observed_counts}"
+            )
+        if len(records) != PINNED_RELEASE_TOTAL:
+            raise SchemaError(
+                f"Pinned AstroVLBench total is {len(records)}, expected {PINNED_RELEASE_TOTAL}"
+            )
     first_sources = {record.source_object_id for record in records if record.task_key == "task2.first"}
     nvss_sources = {record.source_object_id for record in records if record.task_key == "task2.nvss"}
     source_audit = {
@@ -1078,33 +1605,88 @@ def discover_records(
 
 
 def materialize_locked_records(lock_path: Path) -> tuple[list[dict[str, Any]], dict[str, Any]]:
-    """Validate a bundle lock and return JSON-ready records plus audit report."""
+    """Prepare the derived overlay and return JSON-ready records plus audit evidence."""
 
     resolved_lock = Path(lock_path).resolve()
     manifest = read_lock_manifest(resolved_lock)
-    relative = manifest.get("snapshot_relpath", "snapshot")
-    relative_path = PurePosixPath(str(relative))
-    if relative_path.is_absolute() or ".." in relative_path.parts:
-        raise LockValidationError(f"Unsafe snapshot_relpath in lock: {relative!r}")
-    snapshot_dir = resolved_lock.parent / relative_path
+    snapshot_dir = _snapshot_from_lock(resolved_lock, manifest)
     if not snapshot_dir.is_dir():
-        # Local/manual locks are often stored immediately beside snapshot files.
-        # Use that layout only when the documented data directory is present.
-        adjacent = resolved_lock.parent
-        if (adjacent / "data").is_dir() and (adjacent / "code").is_dir():
-            snapshot_dir = adjacent
-        else:
-            raise LockValidationError(
-                f"Locked AstroVLBench snapshot not found at {snapshot_dir}; "
-                "keep the lock beside its snapshot bundle"
-            )
-    result = discover_records(snapshot_dir, resolved_lock)
-    records = []
+        raise LockValidationError(f"Locked AstroVLBench snapshot not found: {snapshot_dir}")
+    validate_lock_manifest(snapshot_dir, resolved_lock)
+    inventory_before = str(manifest.get("snapshot_inventory_sha256") or "")
+    if not inventory_before:
+        raise LockValidationError("AstroVLBench lock has no snapshot inventory hash")
+
+    overlay_dir = resolved_lock.parent / "overlay"
+    repair = build_first_overlay(
+        snapshot_dir,
+        overlay_dir,
+        revision=str(manifest["commit_sha"]),
+    )
+    # This second validation proves that preparation did not mutate the raw snapshot.
+    validated_after = validate_lock_manifest(snapshot_dir, resolved_lock)
+    inventory_after = str(validated_after.get("snapshot_inventory_sha256") or "")
+    if inventory_after != inventory_before:
+        raise LockValidationError("Raw snapshot inventory changed during preparation")
+
+    result = discover_records(
+        snapshot_dir,
+        resolved_lock,
+        overlay_dir=overlay_dir,
+    )
+    records: list[dict[str, Any]] = []
     for index, record in enumerate(result.records, 1):
         value = record.to_dict()
         value["record_index"] = index
         records.append(value)
-    return records, result.report_dict()
+    report = result.report_dict()
+    report.update(
+        {
+            "snapshot_inventory_sha256_before": inventory_before,
+            "snapshot_inventory_sha256_after": inventory_after,
+            "raw_snapshot_unchanged": True,
+            "repair_report": repair,
+            "prompt_composition": manifest["prompt_composition"],
+        }
+    )
+
+    records_path = resolved_lock.parent / "records.jsonl"
+    adapter_report_path = resolved_lock.parent / "adapter_report.json"
+    repair_report_path = overlay_dir / "repair_report.json"
+    _atomic_write_text(records_path, _jsonl_text(records))
+    _atomic_write_text(
+        adapter_report_path,
+        json.dumps(report, indent=2, ensure_ascii=False, sort_keys=True) + "\n",
+    )
+    preparation_script = Path(__file__).resolve().parents[2] / "scripts" / "prepare_astrovlbench.py"
+    manifest = dict(manifest)
+    manifest["overlay_relpath"] = "overlay"
+    manifest["derived_artifacts"] = {
+        "repair_report": {
+            "path": repair_report_path.relative_to(resolved_lock.parent).as_posix(),
+            "sha256": sha256_file(repair_report_path),
+        },
+        "adapter_report": {
+            "path": adapter_report_path.relative_to(resolved_lock.parent).as_posix(),
+            "sha256": sha256_file(adapter_report_path),
+        },
+        "records": {
+            "path": records_path.relative_to(resolved_lock.parent).as_posix(),
+            "sha256": sha256_file(records_path),
+            "count": len(records),
+        },
+        "preparation_implementation": {
+            "adapter_path": Path(__file__).name,
+            "adapter_sha256": sha256_file(Path(__file__)),
+            "script_path": "scripts/prepare_astrovlbench.py",
+            "script_sha256": (
+                sha256_file(preparation_script) if preparation_script.is_file() else None
+            ),
+        },
+    }
+    write_lock_manifest(manifest, resolved_lock)
+    validate_lock_manifest(snapshot_dir, resolved_lock)
+    return records, report
 
 
 def _alias_patterns(task_key: str) -> Mapping[str, tuple[str, ...]]:

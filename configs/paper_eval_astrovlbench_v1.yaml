@@ -1,0 +1,290 @@
+schema_version: 4
+study:
+  id: astraq-vl-astrovlbench-eval-v1
+  seed: 42
+  retrieval: false
+  few_shot: false
+  quantization: false
+  prompt_ablation: false
+  efficiency_table: false
+  expert_review: false
+
+runtime:
+  bootstrap_uv_version: "0.11.30"
+  minimum_gpu_memory_mib: 22000
+  minimum_compute_capability: 8.0
+  maximum_compute_capability_exclusive: 10.0
+  minimum_ram_gib: 32
+  minimum_disk_gib: 80
+  estimated_asset_download_gib: 45
+  require_cuda_for_inference: true
+  output_root: eval_runs/paper_eval_astrovlbench_v1
+  data_root: datasets/paper_eval_astrovlbench_v1
+  asset_root: checkpoints/paper_eval_astrovlbench_v1
+
+environments:
+  modern_generation:
+    python: "3.11.15"
+    torch_index_url: https://download.pytorch.org/whl/cu128
+    packages:
+      pip: "25.3"
+      torch: "2.8.0"
+      torchvision: "0.23.0"
+      transformers: "4.57.1"
+      tokenizers: "0.22.1"
+      accelerate: "1.11.0"
+      peft: "0.19.1"
+      huggingface-hub: "0.36.0"
+      safetensors: "0.6.2"
+      numpy: "2.2.6"
+      Pillow: "12.0.0"
+      qwen-vl-utils: "0.0.14"
+      timm: "1.0.22"
+      einops: "0.6.1"
+  astrollava_generation:
+    python: "3.11.15"
+    torch_index_url: https://download.pytorch.org/whl/cu121
+    packages:
+      pip: "25.3"
+      torch: "2.1.2"
+      torchvision: "0.16.2"
+      transformers: "4.37.2"
+      tokenizers: "0.15.1"
+      accelerate: "0.21.0"
+      peft: "0.5.0"
+      huggingface-hub: "0.20.3"
+      safetensors: "0.4.5"
+      numpy: "1.26.4"
+      Pillow: "10.4.0"
+      protobuf: "4.25.3"
+      sentencepiece: "0.1.99"
+      einops: "0.6.1"
+      einops-exts: "0.0.4"
+      timm: "0.6.13"
+      shortuuid: "1.0.13"
+      llava: "1.2.2.post1"
+
+base_models:
+  vision_encoder:
+    repo_id: openai/clip-vit-large-patch14
+    revision: 32bd64288804d66eefd0ccbe215aa642df71cc41
+    allow_patterns: ["*.json", "*.txt", "vocab.json", "merges.txt", "pytorch_model.bin"]
+  language_model:
+    repo_id: Qwen/Qwen2.5-1.5B-Instruct
+    revision: 989aa7980e4cf806f80c7fef2b1adb7bc71aa306
+    allow_patterns: ["*.json", "*.jinja", "*.model", "*.txt", "*.safetensors"]
+
+models:
+  astraq_stage1:
+    paper_label: AstraQ-VL Stage 1
+    backend: astraq
+    suites: [internal, deepsdo, astrovlbench]
+    dtype: bfloat16
+    repo_id: grKnight/astraq-vl-stage1
+    revision: 4fd0f0a6745649652afbe4dc4f220c6079ce36e2
+    checkpoint_file: checkpoints/standard/astraq-vl-stage1-ep3.zip
+    checkpoint_sha256: 0f0f0f7ee16840490728c0fa000ffb1385513431058f813939746f13c21ff115
+    checkpoint_name: checkpoint-3789
+    stage: 1
+    environment: modern_generation
+  astraq_stage2:
+    paper_label: AstraQ-VL Stage 2
+    backend: astraq
+    suites: [internal, deepsdo, astrovlbench]
+    dtype: bfloat16
+    repo_id: grKnight/astraq-vl-stage2
+    revision: 8439e59619036c32156e1528fb869f3b874e39cb
+    checkpoint_prefix: checkpoints/checkpoint-2526
+    checkpoint_name: checkpoint-2526
+    connector_sha256: bceb7b8bd47df6dcfac4fa4a55daab5ae8eb21ed6a900f17a87fbb38acefb207
+    lora_sha256: 0a1d13405440cecb1c52fb5c28933f7814a157619ee6426501e14b3f2b934b9d
+    stage: 2
+    environment: modern_generation
+    lora:
+      r: 16
+      lora_alpha: 32
+      lora_dropout: 0.05
+      target_modules: [q_proj, k_proj, v_proj, o_proj, gate_proj, up_proj, down_proj]
+  astrollava:
+    paper_label: AstroLLaVA
+    backend: astrollava
+    suites: [deepsdo, astrovlbench]
+    dtype: float16
+    repo_id: UniverseTBD/AstroLLaVA
+    revision: 2df85ab8063d21116cd55deba9273584e570738d
+    code_repo: https://github.com/UniverseTBD/AstroLLaVA.git
+    code_revision: 697cfbf11fbe16ce326dbbdab06bd9d93ccba3e9
+    conversation_mode: llava_v1
+    load_4bit: false
+    load_8bit: false
+    flash_attention: false
+    environment: astrollava_generation
+    allow_patterns: ["config.json", "generation_config.json", "model*.safetensors", "model.safetensors.index.json", "special_tokens_map.json", "tokenizer.model", "tokenizer_config.json"]
+    vision_encoder:
+      repo_id: openai/clip-vit-large-patch14-336
+      revision: ce19dc912ca5cd21c8a653c79e251e808ccabcd1
+      allow_patterns: ["*.json", "*.txt", "vocab.json", "merges.txt", "pytorch_model.bin"]
+  qwen3_vl_4b:
+    paper_label: Qwen3-VL-4B-Instruct
+    backend: qwen3_vl
+    suites: [deepsdo, astrovlbench]
+    dtype: bfloat16
+    repo_id: Qwen/Qwen3-VL-4B-Instruct
+    revision: ebb281ec70b05090aa6165b016eac8ec08e71b17
+    environment: modern_generation
+    allow_patterns: ["*.json", "*.py", "*.jinja", "*.model", "*.txt", "*.safetensors"]
+  internvl3_5_4b:
+    paper_label: InternVL3.5-4B-Instruct
+    backend: internvl
+    suites: [deepsdo, astrovlbench]
+    dtype: bfloat16
+    repo_id: OpenGVLab/InternVL3_5-4B-Instruct
+    revision: dbf19f04a6a6f2fb15821cc7ae738430a3580cf5
+    environment: modern_generation
+    trust_remote_code: true
+    image_size: 448
+    max_image_tiles: 12
+    allow_patterns: ["*.json", "*.py", "*.jinja", "*.model", "*.txt", "*.safetensors"]
+
+scorers:
+  sbert:
+    repo_id: sentence-transformers/all-mpnet-base-v2
+    revision: e8c3b32edf5434bc2275fc9bab85f82640a19130
+  nli:
+    repo_id: microsoft/deberta-large-mnli
+    revision: 7296194b9009373def4f7c5dad292651e4b5cf4e
+
+metric_packages:
+  pycocoevalcap: "1.2"
+  sentence-transformers: "5.6.0"
+  matplotlib: "3.10.8"
+
+datasets:
+  internal:
+    paper_label: AstroLLaVA-derived frozen held-out set
+    source_repo: UniverseTBD/AstroLLaVA_convos
+    source_revision: 35722ab3c19c8831e4e0bb17afa64edaf605d0e6
+    frozen_artifact: eval_runs/full_heldout/astraq-vl-stage2-full-heldout-eval-v1.zip
+    frozen_member: test.json
+    test_json_sha256: c3765a252e18ed53d51378c1356970232b6c6e104e475ec46f529b5829daa4d5
+    expected_records: 3271
+    expected_images: 591
+    expected_caption_records: 586
+    expected_qa_records: 2685
+    builder:
+      include_qa: true
+      max_image_size: 384
+      test_fraction: 0.02
+      seed: 42
+    evaluation_only: true
+    rag_used: false
+  deepsdo:
+    paper_label: DeepSDO Description
+    source_url: http://swds.kasi.re.kr/sdo/kasi_deepsdo_desc_dataset.tar.gz
+    archive_bytes: 36555441
+    archive_sha256: 508382874f62510add0ce925a35fe51d58e0673b79ac559ebcfcae84adfd139e
+    official_split: test
+    expected_records: 102
+    prompt: Describe this solar image.
+    evaluation_only: true
+    rag_used: false
+  astrovlbench:
+    paper_label: AstroVLBench
+    source_repo: XiaomanZhang/AstroVLBench
+    locked_revision: d1708958d4d1dda45c078eb2f4d6db3e6fa96286
+    expected_snapshot_files: 4732
+    expected_snapshot_bytes: 867253762
+    expected_snapshot_inventory_sha256: fe7824d7953e82b2b5b0dccf096c2053407a293d44622baf13ee8a2865d2e70d
+    revision_lock_required: true
+    gated: true
+    modality: image
+    prompt_type: guided
+    prompt_composition: official-system-plus-user-v1
+    redshift_mode: without
+    few_shot: false
+    expected_records: 3905
+    expected_component_records:
+      task1: 557
+      task2.first: 605
+      task2.nvss: 833
+      task3: 168
+      task4: 142
+      task5.q1: 700
+      task5.q2: 500
+      task5.q3: 400
+    first_raw_rows: 833
+    first_expected_exclusions:
+      missing_in_pinned_snapshot: 227
+      upstream_zero_byte_image: 1
+    correction_policy: non_destructive_overlay
+    evaluation_only: true
+    rag_used: false
+
+generation:
+  common:
+    do_sample: false
+    temperature: 0.0
+    num_beams: 1
+    seed: 42
+  internal:
+    caption_max_new_tokens: 512
+    qa_max_new_tokens: 256
+  deepsdo:
+    conditions:
+      original_1024:
+        role: primary_continuity
+        prompt: Describe this solar image.
+        max_new_tokens: 1024
+        require_natural_termination: true
+      concise_256:
+        role: prompt_robustness
+        prompt: Describe this solar image in one concise sentence.
+        max_new_tokens: 256
+        require_natural_termination: true
+  astrovlbench:
+    max_new_tokens: 256
+    require_natural_termination: true
+
+statistics:
+  bootstrap_replicates: 10000
+  seed: 42
+  confidence_level: 0.95
+  internal_cluster_key: image_id
+  deepsdo_primary_metric: cider
+  multiple_comparison_correction: holm
+  predeclared_comparisons:
+    internal:
+      - [astraq_stage2, astraq_stage1]
+    deepsdo:
+      - [astraq_stage2, astraq_stage1]
+      - [astraq_stage1, qwen3_vl_4b]
+      - [astraq_stage1, astrollava]
+      - [astraq_stage1, internvl3_5_4b]
+      - [astraq_stage2, qwen3_vl_4b]
+      - [astraq_stage2, astrollava]
+      - [astraq_stage2, internvl3_5_4b]
+    astrovlbench:
+      - [astraq_stage2, astraq_stage1]
+      - [astraq_stage2, qwen3_vl_4b]
+      - [astraq_stage2, astrollava]
+      - [astraq_stage2, internvl3_5_4b]
+
+factuality_audit:
+  condition: original_1024
+  images: 30
+  reviewers: 2
+  seed: 42
+  bootstrap_replicates: 10000
+  require_adjudication: true
+
+reporting:
+  documentation: docs/astrovlbench_evaluation_v1.md
+  private_bundle: true
+  public_redacted_bundle: true
+  formats: [json, csv, markdown, latex]
+  figure_formats: [pdf, svg, png]
+  png_dpi: 300
+  retain_raw_generation: true
+  retain_generated_token_ids: true
+  include_references_in_public_bundle: false
+  require_completed_factuality_audit: false
