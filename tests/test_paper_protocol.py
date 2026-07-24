@@ -35,8 +35,15 @@ class PaperProtocolTests(unittest.TestCase):
             dataset["locked_revision"],
             "d1708958d4d1dda45c078eb2f4d6db3e6fa96286",
         )
-        self.assertEqual(dataset["expected_records"], 3905)
-        self.assertEqual(sum(dataset["expected_component_records"].values()), 3905)
+        self.assertEqual(dataset["expected_records"], 1995)
+        self.assertEqual(
+            dataset["expected_component_records"],
+            {"task1": 557, "task2.first": 605, "task2.nvss": 833},
+        )
+        self.assertEqual(
+            dataset["expected_snapshot_inventory_sha256"],
+            "c282a79c42854dac4714c5e7311b468eb1a4a591f988766c4bc74830b6b47d82",
+        )
         self.assertEqual(
             astro.data["runtime"]["output_root"],
             "eval_runs/paper_eval_astrovlbench_v1",

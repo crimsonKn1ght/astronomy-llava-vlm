@@ -309,6 +309,32 @@ class AstroVLBenchAdapterTests(unittest.TestCase):
         self.assertEqual(canonical["record_index"], 1)
         validate_unique_records(serialized_records)
 
+    def test_materialization_filters_to_protocol_selected_task12_components(self) -> None:
+        selected_counts = {
+            "task1": 2,
+            "task2.first": 1,
+            "task2.nvss": 2,
+        }
+        records, report = materialize_locked_records(
+            self.lock_path,
+            expected_component_counts=selected_counts,
+        )
+        self.assertEqual(len(records), 5)
+        self.assertEqual(
+            {record["task_key"] for record in records},
+            set(selected_counts),
+        )
+        self.assertEqual(
+            report["evaluation_selection"]["component_counts"],
+            selected_counts,
+        )
+        self.assertEqual(report["total_materialized_records"], 5)
+        self.assertEqual(report["full_snapshot_materialized_records"], 26)
+        self.assertEqual(
+            report["evaluation_selection"]["excluded_components"],
+            ["task3", "task4", "task5.q1", "task5.q2", "task5.q3"],
+        )
+
     def test_first_overlay_excludes_missing_and_zero_byte_rows_without_mutating_source(self) -> None:
         metadata = (
             self.snapshot
@@ -448,6 +474,27 @@ class AstroVLBenchAdapterTests(unittest.TestCase):
         self.assertAlmostEqual(aggregate["top_level_task_scores"]["task2"], 0.6)
         self.assertAlmostEqual(aggregate["top_level_task_scores"]["task5"], 0.7)
         self.assertAlmostEqual(aggregate["project_macro_average"], 0.56)
+
+    def test_hierarchical_project_aggregation_supports_complete_task12_selection(self) -> None:
+        scores = {
+            "task1": 0.5,
+            "task2.first": 0.4,
+            "task2.nvss": 0.8,
+        }
+        aggregate = hierarchical_project_aggregate(
+            scores,
+            included_components=scores,
+        )
+        self.assertEqual(set(aggregate["top_level_task_scores"]), {"task1", "task2"})
+        self.assertAlmostEqual(aggregate["top_level_task_scores"]["task2"], 0.6)
+        self.assertAlmostEqual(aggregate["project_macro_average"], 0.55)
+
+    def test_hierarchical_project_aggregation_rejects_partial_task2(self) -> None:
+        with self.assertRaisesRegex(ValueError, "all components of task2"):
+            hierarchical_project_aggregate(
+                {"task2.first": 0.4},
+                included_components={"task2.first"},
+            )
 
 
 if __name__ == "__main__":

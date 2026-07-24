@@ -25,6 +25,7 @@ import os
 import re
 import sys
 from collections import Counter
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from functools import lru_cache
@@ -281,6 +282,39 @@ def sha256_file(path: Path, chunk_size: int = 1024 * 1024) -> str:
 
 def sha256_text(value: str) -> str:
     return hashlib.sha256(value.encode("utf-8")).hexdigest()
+
+
+def _cpu_worker_count(item_count: int) -> int:
+    """Return a bounded worker count for deterministic I/O-heavy validation."""
+
+    if item_count <= 1:
+        return 1
+    configured = os.environ.get("PAPER_EVAL_CPU_WORKERS")
+    if configured:
+        try:
+            workers = int(configured)
+        except ValueError as exc:
+            raise AstroVLBenchError(
+                "PAPER_EVAL_CPU_WORKERS must be a positive integer"
+            ) from exc
+        if workers < 1:
+            raise AstroVLBenchError(
+                "PAPER_EVAL_CPU_WORKERS must be a positive integer"
+            )
+    else:
+        workers = min(8, os.cpu_count() or 1)
+    return min(workers, item_count)
+
+
+def _parallel_map(function: Any, items: Sequence[Any]) -> list[Any]:
+    """Map in input order so concurrency cannot change manifests or reports."""
+
+    values = list(items)
+    workers = _cpu_worker_count(len(values))
+    if workers == 1:
+        return [function(item) for item in values]
+    with ThreadPoolExecutor(max_workers=workers) as executor:
+        return list(executor.map(function, values))
 
 
 @lru_cache(maxsize=None)
@@ -580,14 +614,16 @@ def create_lock_manifest(
     if not root.is_dir():
         raise FileNotFoundError(f"AstroVLBench snapshot directory not found: {root}")
     commit = _canonical_commit(commit_sha)
-    files = [
-        {
+    paths = list(_iter_snapshot_files(root, exclude_paths))
+
+    def manifest_entry(path: Path) -> dict[str, Any]:
+        return {
             "path": path.relative_to(root).as_posix(),
             "size": path.stat().st_size,
             "sha256": sha256_file(path),
         }
-        for path in _iter_snapshot_files(root, exclude_paths)
-    ]
+
+    files = _parallel_map(manifest_entry, paths)
     if not files:
         raise LockValidationError(f"Snapshot contains no dataset files: {root}")
     by_path = {entry["path"]: entry for entry in files}
@@ -714,13 +750,20 @@ def validate_lock_manifest(
         raise LockValidationError(
             f"Snapshot file set differs from lock (missing={missing}, unexpected={extra})"
         )
-    for relative, entry in locked.items():
+    def validate_entry(item: tuple[str, Mapping[str, Any]]) -> str | None:
+        relative, entry = item
         path = actual[relative]
         if path.stat().st_size != int(entry["size"]):
-            raise LockValidationError(f"Size mismatch for locked file {relative}")
+            return f"Size mismatch for locked file {relative}"
         digest = sha256_file(path)
         if digest != str(entry["sha256"]).lower():
-            raise LockValidationError(f"SHA-256 mismatch for locked file {relative}")
+            return f"SHA-256 mismatch for locked file {relative}"
+        return None
+
+    validation_errors = _parallel_map(validate_entry, list(locked.items()))
+    first_error = next((error for error in validation_errors if error is not None), None)
+    if first_error is not None:
+        raise LockValidationError(first_error)
 
     prompt_sources = manifest.get("official_prompt_sources", [])
     prompt_paths = {str(entry.get("path")) for entry in prompt_sources if isinstance(entry, Mapping)}
@@ -990,7 +1033,11 @@ def build_first_overlay(
     valid_dimensions: Counter[str] = Counter()
     valid_modes: Counter[str] = Counter()
     first_root = raw_metadata.parent
-    for source_line, source in enumerate(rows, 1):
+
+    def validate_first_row(
+        item: tuple[int, Mapping[str, Any]],
+    ) -> tuple[int, dict[str, Any], str, Path, bool, str | None, tuple[int, int] | None, str | None]:
+        source_line, source = item
         row = dict(source)
         filename = str(row["filename"])
         relative = PurePosixPath(filename.replace("\\", "/"))
@@ -998,6 +1045,13 @@ def build_first_overlay(
             raise SchemaError(f"Unsafe FIRST image reference: {filename!r}")
         image_path = first_root / relative
         valid, reason, size, mode = _verify_decodable_image(image_path)
+        return source_line, row, filename, image_path, valid, reason, size, mode
+
+    checked_rows = _parallel_map(
+        validate_first_row,
+        list(enumerate(rows, 1)),
+    )
+    for source_line, row, filename, image_path, valid, reason, size, mode in checked_rows:
         if valid:
             valid_rows.append(row)
             assert size is not None and mode is not None
@@ -1032,10 +1086,16 @@ def build_first_overlay(
     invalid_images: list[dict[str, Any]] = []
     image_counts: Counter[str] = Counter()
     image_hashes: dict[str, list[str]] = {}
-    for path in image_paths:
+
+    def audit_image(
+        path: Path,
+    ) -> tuple[Path, bool, str | None, str]:
+        valid, reason, _, _ = _verify_decodable_image(path)
+        return path, valid, reason, sha256_file(path)
+
+    for path, valid, reason, digest in _parallel_map(audit_image, image_paths):
         relative = path.relative_to(snapshot / "data")
         image_counts[relative.parts[0]] += 1
-        valid, reason, _, _ = _verify_decodable_image(path)
         if not valid:
             invalid_images.append(
                 {
@@ -1044,7 +1104,6 @@ def build_first_overlay(
                     "size_bytes": path.stat().st_size,
                 }
             )
-        digest = sha256_file(path)
         image_hashes.setdefault(digest, []).append(relative.as_posix())
     duplicate_groups = sorted(
         (members for members in image_hashes.values() if len(members) > 1),
@@ -1513,9 +1572,13 @@ def _assert_unique_complete(records: Sequence[AstroVLBenchRecord]) -> None:
     duplicate_ids = sorted(sample_id for sample_id, count in counts.items() if count != 1)
     if duplicate_ids:
         raise SchemaError(f"Duplicate materialized sample IDs: {duplicate_ids[:10]}")
-    for image_path in sorted({record.image_path for record in records}):
-        image = Path(image_path)
+    images = [Path(image_path) for image_path in sorted({record.image_path for record in records})]
+
+    def validate_image(image: Path) -> tuple[Path, bool, str | None]:
         valid, reason, _, _ = _verify_decodable_image(image)
+        return image, valid, reason
+
+    for image, valid, reason in _parallel_map(validate_image, images):
         if not valid:
             raise SchemaError(f"Materialized image is invalid ({reason}): {image}")
     for record in records:
@@ -1604,8 +1667,12 @@ def discover_records(
     )
 
 
-def materialize_locked_records(lock_path: Path) -> tuple[list[dict[str, Any]], dict[str, Any]]:
-    """Prepare the derived overlay and return JSON-ready records plus audit evidence."""
+def materialize_locked_records(
+    lock_path: Path,
+    *,
+    expected_component_counts: Mapping[str, int] | None = None,
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    """Prepare the overlay and return only the protocol-selected components."""
 
     resolved_lock = Path(lock_path).resolve()
     manifest = read_lock_manifest(resolved_lock)
@@ -1634,14 +1701,49 @@ def materialize_locked_records(lock_path: Path) -> tuple[list[dict[str, Any]], d
         resolved_lock,
         overlay_dir=overlay_dir,
     )
+    if expected_component_counts is None:
+        selected_records = list(result.records)
+        selected_components = sorted({record.task_key for record in selected_records})
+    else:
+        selected_components = sorted(str(key) for key in expected_component_counts)
+        unsupported = sorted(set(selected_components) - set(PINNED_RELEASE_COUNTS))
+        if unsupported:
+            raise SchemaError(
+                f"Unsupported AstroVLBench evaluation components: {unsupported}"
+            )
+        selected = set(selected_components)
+        selected_records = [
+            record for record in result.records if record.task_key in selected
+        ]
+        observed_counts = Counter(record.task_key for record in selected_records)
+        expected_counts = {
+            str(key): int(value) for key, value in expected_component_counts.items()
+        }
+        if {key: observed_counts.get(key, 0) for key in selected_components} != expected_counts:
+            raise SchemaError(
+                "Protocol-selected AstroVLBench component counts changed: "
+                f"{dict(observed_counts)}, expected {expected_counts}"
+            )
+
     records: list[dict[str, Any]] = []
-    for index, record in enumerate(result.records, 1):
+    for index, record in enumerate(selected_records, 1):
         value = record.to_dict()
         value["record_index"] = index
         records.append(value)
     report = result.report_dict()
     report.update(
         {
+            "full_snapshot_materialized_records": len(result.records),
+            "total_materialized_records": len(records),
+            "evaluation_selection": {
+                "included_components": selected_components,
+                "component_counts": dict(
+                    sorted(Counter(record.task_key for record in selected_records).items())
+                ),
+                "excluded_components": sorted(
+                    set(PINNED_RELEASE_COUNTS) - set(selected_components)
+                ),
+            },
             "snapshot_inventory_sha256_before": inventory_before,
             "snapshot_inventory_sha256_after": inventory_after,
             "raw_snapshot_unchanged": True,
@@ -1792,10 +1894,23 @@ def parse_label(
     return parse_label_response(response, task_key)
 
 
-def hierarchical_project_aggregate(scores: Mapping[str, float]) -> dict[str, Any]:
-    """Apply the predeclared survey/question hierarchy to one score metric."""
+def hierarchical_project_aggregate(
+    scores: Mapping[str, float],
+    *,
+    included_components: Iterable[str] | None = None,
+) -> dict[str, Any]:
+    """Apply the hierarchy to all tasks or to complete selected top-level tasks."""
 
-    required = set(PUBLIC_REFERENCE_COUNTS)
+    required = (
+        set(PUBLIC_REFERENCE_COUNTS)
+        if included_components is None
+        else {str(key) for key in included_components}
+    )
+    if not required:
+        raise ValueError("AstroVLBench aggregation requires at least one component")
+    unsupported = sorted(required - set(PUBLIC_REFERENCE_COUNTS))
+    if unsupported:
+        raise ValueError(f"Unsupported AstroVLBench components: {unsupported}")
     missing = sorted(required - scores.keys())
     if missing:
         raise ValueError(f"Missing AstroVLBench component scores: {missing}")
@@ -1805,18 +1920,32 @@ def hierarchical_project_aggregate(scores: Mapping[str, float]) -> dict[str, Any
         if not math.isfinite(value) or not 0.0 <= value <= 1.0:
             raise ValueError(f"AstroVLBench score {key} must be finite and within [0, 1]")
         clean[key] = value
-    task_scores = {
-        "task1": clean["task1"],
-        "task2": (clean["task2.first"] + clean["task2.nvss"]) / 2.0,
-        "task3": clean["task3"],
-        "task4": clean["task4"],
-        "task5": (clean["task5.q1"] + clean["task5.q2"] + clean["task5.q3"]) / 3.0,
+    component_groups = {
+        "task1": ("task1",),
+        "task2": ("task2.first", "task2.nvss"),
+        "task3": ("task3",),
+        "task4": ("task4",),
+        "task5": ("task5.q1", "task5.q2", "task5.q3"),
     }
+    task_scores: dict[str, float] = {}
+    for task, components in component_groups.items():
+        selected = required.intersection(components)
+        if not selected:
+            continue
+        if selected != set(components):
+            raise ValueError(
+                f"AstroVLBench selection must include all components of {task}: "
+                f"{list(components)}"
+            )
+        task_scores[task] = sum(clean[key] for key in components) / len(components)
     return {
         "component_scores": {key: clean[key] for key in sorted(clean)},
         "top_level_task_scores": task_scores,
         "project_macro_average": sum(task_scores.values()) / len(task_scores),
-        "aggregation": "equal surveys within Task 2; equal questions within Task 5; equal five top-level tasks",
+        "aggregation": (
+            "equal selected components within each top-level task; "
+            "equal selected top-level tasks"
+        ),
     }
 
 

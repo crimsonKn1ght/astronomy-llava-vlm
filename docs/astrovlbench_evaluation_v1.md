@@ -1,8 +1,10 @@
 # AstroVLBench evaluation v1
 
-This protocol evaluates the image-only, zero-shot guided-prompt portion of the
-pinned gated AstroVLBench release. It is isolated from the completed DeepSDO v4
-study and never trains, tunes, or retrieves examples for any model.
+This protocol evaluates only the direct-image classification portions of the
+pinned gated AstroVLBench release: Task 1 and both Task 2 surveys. Tasks 3–5 are
+plot-rendering tasks and are excluded from the evaluation denominator. The study
+is isolated from the completed DeepSDO v4 run and never trains, tunes, or
+retrieves examples for any model.
 
 ## Dataset preparation
 
@@ -41,12 +43,10 @@ The canonical component counts are:
 | Task 1 | 557 |
 | Task 2 FIRST | 605 |
 | Task 2 NVSS | 833 |
-| Task 3 | 168 |
-| Task 4 | 142 |
-| Task 5 Q1 | 700 |
-| Task 5 Q2 | 500 |
-| Task 5 Q3 | 400 |
-| Total | 3,905 |
+| **Total evaluated** | **1,995** |
+
+Tasks 3–5 are still covered by the immutable raw-snapshot lock, but they are not
+materialized into canonical evaluation records and receive no model predictions.
 
 ## Generation and analysis
 
@@ -58,12 +58,12 @@ bash scripts/runpod/run_paper_eval.sh analyze --protocol configs/paper_eval_astr
 bash scripts/runpod/run_paper_eval.sh package --protocol configs/paper_eval_astrovlbench_v1.yaml --suites astrovlbench --models all
 ```
 
-Smoke selects one record from each of the eight task components. A token-cap
+Smoke selects one record from each of the three selected components. A token-cap
 row proves only that the backend ran; it remains a protocol failure and must not
-appear in the definitive run. Each model must finish with exactly 3,905
+appear in the definitive run. Each selected model must finish with exactly 1,995
 successful rows and no missing, failed, extra, duplicate, or capped rows.
 
 Official system and user prompt text are extracted without importing upstream
 code and combined with the frozen `official-system-plus-user-v1` separator.
-Task 3 receives no numeric redshift or catalog photometry. Invalid or ambiguous
-model labels are retained as incorrect answers rather than retried or discarded.
+Invalid or ambiguous model labels are retained as incorrect answers rather than
+retried or discarded.

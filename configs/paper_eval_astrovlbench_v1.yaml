@@ -1,6 +1,6 @@
 schema_version: 4
 study:
-  id: astraq-vl-astrovlbench-eval-v1
+  id: astraq-vl-astrovlbench-task12-eval-v1
   seed: 42
   retrieval: false
   few_shot: false
@@ -189,12 +189,12 @@ datasets:
     evaluation_only: true
     rag_used: false
   astrovlbench:
-    paper_label: AstroVLBench
+    paper_label: AstroVLBench Tasks 1–2
     source_repo: XiaomanZhang/AstroVLBench
     locked_revision: d1708958d4d1dda45c078eb2f4d6db3e6fa96286
     expected_snapshot_files: 4732
     expected_snapshot_bytes: 867253762
-    expected_snapshot_inventory_sha256: fe7824d7953e82b2b5b0dccf096c2053407a293d44622baf13ee8a2865d2e70d
+    expected_snapshot_inventory_sha256: c282a79c42854dac4714c5e7311b468eb1a4a591f988766c4bc74830b6b47d82
     revision_lock_required: true
     gated: true
     modality: image
@@ -202,16 +202,11 @@ datasets:
     prompt_composition: official-system-plus-user-v1
     redshift_mode: without
     few_shot: false
-    expected_records: 3905
+    expected_records: 1995
     expected_component_records:
       task1: 557
       task2.first: 605
       task2.nvss: 833
-      task3: 168
-      task4: 142
-      task5.q1: 700
-      task5.q2: 500
-      task5.q3: 400
     first_raw_rows: 833
     first_expected_exclusions:
       missing_in_pinned_snapshot: 227

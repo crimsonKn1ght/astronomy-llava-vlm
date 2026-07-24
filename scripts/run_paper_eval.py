@@ -452,8 +452,14 @@ def prepare_astrovlbench(protocol: PaperProtocol, args: argparse.Namespace) -> P
     root = Path(args.data_root).resolve() / "astrovlbench"
     records_path = root / "records.jsonl"
     lock_path = root / "astrovlbench.lock.json"
+    dataset = protocol.data["datasets"]["astrovlbench"]
+    expected_components = dataset["expected_component_records"]
     if args.dry_run:
-        print(f"PLAN validate AstroVLBench lock and materialize all five tasks -> {records_path}")
+        selected = ",".join(expected_components)
+        print(
+            "PLAN validate AstroVLBench lock and materialize selected components "
+            f"({selected}) -> {records_path}"
+        )
         return records_path
     if not lock_path.is_file():
         raise SystemExit(
@@ -461,9 +467,12 @@ def prepare_astrovlbench(protocol: PaperProtocol, args: argparse.Namespace) -> P
         )
     astrovlbench.validate_protocol_release_contract(
         lock_path,
-        protocol.data["datasets"]["astrovlbench"],
+        dataset,
     )
-    astrovlbench.materialize_locked_records(lock_path)
+    astrovlbench.materialize_locked_records(
+        lock_path,
+        expected_component_counts=expected_components,
+    )
     if not records_path.is_file() or not (root / "adapter_report.json").is_file():
         raise SystemExit("AstroVLBench preparation did not emit canonical records and report")
     return records_path

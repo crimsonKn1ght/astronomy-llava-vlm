@@ -227,7 +227,10 @@ class PaperOrchestratorDryRunTests(unittest.TestCase):
         )
         self.assertEqual(completed.returncode, 0, completed.stdout + completed.stderr)
         self.assertIn("PLAN lock gated AstroVLBench snapshot", completed.stdout)
-        self.assertIn("materialize all five tasks", completed.stdout)
+        self.assertIn(
+            "materialize selected components (task1,task2.first,task2.nvss)",
+            completed.stdout,
+        )
 
     def test_runpod_wrapper_contains_recovery_hardening(self) -> None:
         wrapper = (ROOT / "scripts" / "runpod" / "run_paper_eval.sh").read_text(

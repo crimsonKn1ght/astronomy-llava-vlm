@@ -990,7 +990,11 @@ def _astro_stratified_resample(
 def _astro_hierarchy_values(rows: Sequence[Mapping[str, Any]]) -> Dict[str, float]:
     from .astrovlbench import hierarchical_project_aggregate
 
-    hierarchy = hierarchical_project_aggregate(_astro_component_scores(rows))
+    component_scores = _astro_component_scores(rows)
+    hierarchy = hierarchical_project_aggregate(
+        component_scores,
+        included_components=component_scores,
+    )
     return {
         **{key: float(value) for key, value in hierarchy["top_level_task_scores"].items()},
         "project_summary": float(hierarchy["project_macro_average"]),
@@ -1156,7 +1160,10 @@ def analyze_astrovlbench(
                     cluster_key="source_object_id",
                 )
                 ci_rows.append({"suite": "astrovlbench", "model": model_label, "task_key": task_key, "metric": metric, **interval.as_dict()})
-        hierarchy = hierarchical_project_aggregate(component_macro)
+        hierarchy = hierarchical_project_aggregate(
+            component_macro,
+            included_components=component_macro,
+        )
         hierarchy_intervals = _astro_hierarchy_intervals(parsed, protocol, model_label)
         ci_rows.extend(hierarchy_intervals)
         project_ci = next(
